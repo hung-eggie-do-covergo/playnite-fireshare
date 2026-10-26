@@ -38,8 +38,36 @@ namespace FireshareShare
             }
         }
 
+        /// <summary>The games each indexed file is listed under, by full path; empty without ScreenshotsVisualizer.</summary>
+        /// <remarks>A file can be under several games when one name prefixes another ("Resident Evil" and "Resident Evil 4").</remarks>
+        public static Dictionary<string, List<string>> Owners(IPlayniteAPI api)
+        {
+            var owners = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var dir = Path.Combine(api.Paths.ExtensionsDataPath, PluginId, "ScreenshotsVisualizer");
+            if (!Directory.Exists(dir)) return owners;
+            foreach (var file in Directory.EnumerateFiles(dir, "*.json"))
+            {
+                try
+                {
+                    using (var stream = File.OpenRead(file))
+                    {
+                        var index = (GameIndex)new DataContractJsonSerializer(typeof(GameIndex)).ReadObject(stream);
+                        foreach (var item in index.Items ?? new List<Item>())
+                        {
+                            if (item.FileName == null) continue;
+                            if (!owners.TryGetValue(item.FileName, out var names)) owners[item.FileName] = names = new List<string>();
+                            names.Add(index.Name);
+                        }
+                    }
+                }
+                catch (Exception ex) { logger.Warn(ex, $"Could not read ScreenshotsVisualizer's index {file}"); }
+            }
+            return owners;
+        }
+
         [DataContract] class GameIndex
         {
+            [DataMember(Name = "Name")] public string Name;
             [DataMember(Name = "Items")] public List<Item> Items;
         }
 

@@ -68,12 +68,18 @@ namespace FireshareShare
             yield return new GameMenuItem { Description = "Share captures to Fireshare…", Action = _ => Share(game) };
         }
 
+        public override IEnumerable<MainMenuItem> GetMainMenuItems(GetMainMenuItemsArgs args)
+        {
+            yield return new MainMenuItem { MenuSection = "@Fireshare", Description = "Share captures to Fireshare…", Action = _ => Share(null) };
+        }
+
+        /// <summary>Opens the capture grid for one game, or for every capture when <paramref name="game"/> is null.</summary>
         void Share(Game game)
         {
             if (!EnsureConfigured()) return;
             var s = settings.Settings;
             var picked = CapturePicker.Pick(PlayniteApi, game, s.CapturesFolder, new FireshareClient(s.ServerUrl, s.Token, s.Session), ids.Value);
-            if (picked.Length > 0) Upload(game.Name, picked);
+            if (picked.Length > 0) Upload(game?.Name, picked);
             try { ids.Value.Save(); }
             catch (Exception ex) { logger.Warn(ex, "Could not save the media id cache"); }
         }
@@ -107,8 +113,8 @@ namespace FireshareShare
             PlayniteApi.Dialogs.ActivateGlobalProgress(p =>
             {
                 p.ProgressMaxValue = files.Length;
-                int? gameId = null;
-                try { if (gameName != null) gameId = FireshareClient.MatchGame(gameName, client.GamesAsync(p.CancelToken).GetAwaiter().GetResult()); }
+                List<GameRef> games;
+                try { games = client.GamesAsync(p.CancelToken).GetAwaiter().GetResult(); }
                 catch (Exception ex) { errors.Add(ex.Message); return; }
 
                 for (var i = 0; i < files.Length && !p.CancelToken.IsCancellationRequested; i++)
@@ -121,7 +127,7 @@ namespace FireshareShare
                         // Already on Fireshare only: nothing to upload, just its link.
                         var result = files[i].Path == null
                             ? new ShareResult { Link = client.LinkAsync(files[i].Remote.Kind, files[i].Remote.Id, p.CancelToken).GetAwaiter().GetResult(), AlreadyThere = true }
-                            : client.ShareAsync(files[i].Path, gameId, p.CancelToken).GetAwaiter().GetResult();
+                            : client.ShareAsync(files[i].Path, FireshareClient.MatchCapture(files[i].GameNames.Concat(new[] { gameName }).Where(n => n != null), files[i].Path, games), p.CancelToken).GetAwaiter().GetResult();
                         links.Add(result.Link);
                         if (result.AlreadyThere) skipped++;
                     }

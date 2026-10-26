@@ -25,6 +25,12 @@ Assert(FireshareClient.MatchGame("Elden Ring", games) == 7, "match ignores case 
 Assert(FireshareClient.MatchGame("Baldurs Gate 3", games) == 9, "match ignores punctuation");
 Assert(FireshareClient.MatchGame("Hades", games) == null, "unknown game is null");
 
+var fsGames = new[] { new GameRef { Id = 1, Name = "Resident Evil" }, new GameRef { Id = 4, Name = "Resident Evil 4" }, new GameRef { Id = 7, Name = "007 First Light" } };
+Assert(FireshareClient.MatchCapture(new[] { "Resident Evil Village" }, @"Z:\c\Resident Evil 4 9_26_2026 7_54_21 PM.png", fsGames) == 4, "longest filename prefix wins");
+Assert(FireshareClient.MatchCapture(new[] { "Resident Evil" }, @"Z:\c\Resident Evil 4 9_26_2026.png", fsGames) == 4, "filename beats a shorter candidate");
+Assert(FireshareClient.MatchCapture(new[] { "Unknown", "007 First Light" }, @"Z:\c\20260920_1.png", fsGames) == 7, "candidates cover filenames without the game");
+Assert(FireshareClient.MatchCapture(new string[0], @"Z:\c\PRAGMATA 10_18_2026.png", fsGames) == null, "no match leaves the game unset");
+
 Assert(FireshareClient.KindOf("a.PNG") == "image" && FireshareClient.KindOf("a.mp4") == "video" && FireshareClient.KindOf("a.jxr") == null, "kind by extension");
 
 // Live round trip, only when pointed at a real instance.

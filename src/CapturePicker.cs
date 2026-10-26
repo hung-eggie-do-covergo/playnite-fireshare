@@ -20,6 +20,8 @@ namespace FireshareShare
     {
         public string Path;
         public RemoteItem Remote;
+        /// <summary>Games it may belong to, tried in order to link the upload to a Fireshare game.</summary>
+        public List<string> GameNames = new List<string>();
         public DateTime Date;
         public string Kind => Path != null ? FireshareClient.KindOf(Path) : Remote.Kind;
     }
@@ -41,7 +43,8 @@ namespace FireshareShare
 
         public static Capture[] Pick(IPlayniteAPI api, Game game, string folder, FireshareClient client, MediaIdCache ids)
         {
-            var gameName = game.Name;
+            // No game means the app-level entry: every capture, nothing to switch to.
+            var gameName = game?.Name;
             if (!Directory.Exists(folder))
             {
                 api.Dialogs.ShowErrorMessage($"Captures folder not found: {folder}", "Fireshare Share");
@@ -50,10 +53,11 @@ namespace FireshareShare
 
             var fullscreen = api.ApplicationInfo.Mode == ApplicationMode.Fullscreen;
             // ScreenshotsVisualizer's index knows the user's per-game folders and overrides; the filename guess is the fallback.
-            var gameFiles = ScreenshotsVisualizerIndex.Files(api, game.Id) ?? Find(folder, Prefix(gameName));
+            var gameFiles = game == null ? new List<string>() : ScreenshotsVisualizerIndex.Files(api, game.Id) ?? Find(folder, Prefix(gameName));
+            var owners = ScreenshotsVisualizerIndex.Owners(api);
             var allFiles = Find(folder, "");
             // Start on the game even with nothing local: its Fireshare captures may still be there.
-            var showingAll = false;
+            var showingAll = game == null;
             var generation = 0;
             var result = new Capture[0];
 
@@ -86,7 +90,12 @@ namespace FireshareShare
                 var files = showingAll ? allFiles : gameFiles;
                 heading.Text = files.Count == 0 ? "No captures found" : (showingAll ? "All captures" : $"{gameName} captures");
                 list.Items.Clear();
-                var captures = files.Take(MaxShown).Select(f => new Capture { Path = f, Date = File.GetLastWriteTime(f) }).ToList();
+                var captures = files.Take(MaxShown).Select(f => new Capture
+                {
+                    Path = f,
+                    Date = File.GetLastWriteTime(f),
+                    GameNames = showingAll ? (owners.TryGetValue(f, out var names) ? names : new List<string>()) : new List<string> { gameName },
+                }).ToList();
                 var tiles = captures.Select(Tile).ToList();
                 tiles.ForEach(t => list.Items.Add(t));
                 if (tiles.Count > 0) window.Dispatcher.BeginInvoke(new Action(() => tiles[0].Focus()), System.Windows.Threading.DispatcherPriority.Loaded);
@@ -113,13 +122,17 @@ namespace FireshareShare
                         var tile = tiles[i];
                         var thumb = Thumbnail(captures[i].Path);
                         if (thumb != null) Post(() => SetThumb(tile, thumb));
-                        if (remote == null) continue;
-
                         string id;
-                        try { id = ids.Get(captures[i].Path); }
-                        catch (Exception ex) { logger.Warn(ex, $"Could not hash {captures[i].Path}"); continue; }
+                        RemoteItem match = null;
+                        try
+                        {
+                            id = ids.Get(captures[i].Path);
+                            // The game view matches against the game's list; elsewhere each file is looked up.
+                            if (remote != null) remote.TryGetValue(id, out match);
+                            else match = client.LookupAsync(captures[i].Kind, id).GetAwaiter().GetResult();
+                        }
+                        catch (Exception ex) { logger.Warn(ex, $"Could not check {captures[i].Path} on Fireshare"); continue; }
                         localIds.Add(id);
-                        remote.TryGetValue(id, out var match);
                         captures[i].Remote = match;
                         Post(() => SetBadge(tile, match != null ? Where.Both : Where.Local, match?.Private ?? false));
                     }
@@ -128,7 +141,7 @@ namespace FireshareShare
                     foreach (var item in remote.Values.Where(r => !localIds.Contains(r.Id)).OrderByDescending(r => r.Date))
                     {
                         if (gen != generation) return;
-                        var capture = new Capture { Remote = item, Date = item.Date };
+                        var capture = new Capture { Remote = item, Date = item.Date, GameNames = { gameName } };
                         ListBoxItem tile = null;
                         window.Dispatcher.Invoke(() =>
                         {
@@ -160,6 +173,7 @@ namespace FireshareShare
 
             void SwitchList()
             {
+                if (game == null) return;
                 showingAll = !showingAll;
                 Show();
             }
@@ -179,7 +193,7 @@ namespace FireshareShare
             var content = new DockPanel();
             DockPanel.SetDock(heading, Dock.Top);
             content.Children.Add(heading);
-            var footer = fullscreen ? PromptFooter() : ButtonFooter(Confirm, SwitchList, () => window.Close());
+            var footer = fullscreen ? PromptFooter(game != null) : ButtonFooter(Confirm, game != null ? SwitchList : (Action)null, () => window.Close());
             DockPanel.SetDock(footer, Dock.Bottom);
             content.Children.Add(footer);
             list.Margin = new Thickness(10);
@@ -215,12 +229,12 @@ namespace FireshareShare
             return result;
         }
 
-        static FrameworkElement PromptFooter()
+        static FrameworkElement PromptFooter(bool canSwitch)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
             row.Children.Add(Prompt("ButtonPromptA", "Select"));
             row.Children.Add(Prompt("ButtonPromptX", "Share"));
-            row.Children.Add(Prompt("ButtonPromptY", "Switch list"));
+            if (canSwitch) row.Children.Add(Prompt("ButtonPromptY", "Switch list"));
             row.Children.Add(Prompt("ButtonPromptB", "Back"));
             var footer = new Border { Child = row };
             footer.SetResourceReference(FrameworkElement.StyleProperty, "ItemSelectionFooterBorder");
@@ -249,7 +263,7 @@ namespace FireshareShare
                 row.Children.Add(button);
             }
             Add("Share selected", share);
-            Add("Switch list", switchList);
+            if (switchList != null) Add("Switch list", switchList);
             Add("Cancel", cancel);
             return row;
         }

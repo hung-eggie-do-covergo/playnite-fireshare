@@ -87,10 +87,22 @@ namespace FireshareShare
 
         public static GameRef MatchGameRef(string name, IEnumerable<GameRef> games)
         {
-            string Key(string n) => new string((n ?? "").Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
             var key = Key(name);
             return key.Length == 0 ? null : games.FirstOrDefault(g => Key(g.Name) == key);
         }
+
+        /// <summary>The Fireshare game for a capture: the longest game name its filename starts with, else the first candidate Fireshare knows.</summary>
+        /// <remarks>Filename first, because candidates can be wrong when one game name prefixes another.</remarks>
+        public static int? MatchCapture(IEnumerable<string> candidates, string path, IList<GameRef> games)
+        {
+            var file = Key(Path.GetFileNameWithoutExtension((path ?? "").Split('\\', '/').Last()));
+            var byName = games.Where(g => Key(g.Name).Length > 0 && file.StartsWith(Key(g.Name)))
+                              .OrderByDescending(g => Key(g.Name).Length)
+                              .FirstOrDefault();
+            return byName?.Id ?? candidates.Select(n => MatchGameRef(n, games)).FirstOrDefault(g => g != null)?.Id;
+        }
+
+        static string Key(string n) => new string((n ?? "").Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 
         public async Task<TokenCheck> CheckAsync(CancellationToken ct = default)
             => await GetAsync<TokenCheck>("api/upload/token", ct);
@@ -111,6 +123,18 @@ namespace FireshareShare
             foreach (var media in await GetListAsync<MediaJson>($"api/games/{game.SteamGridDbId}/videos", ct))
                 items.Add(media.ToRemote("video"));
             return items;
+        }
+
+        /// <summary>One item by id, whether or not it is linked to a game; null when Fireshare does not have it.</summary>
+        public async Task<RemoteItem> LookupAsync(string kind, string id, CancellationToken ct = default)
+        {
+            using (var res = await SendAsync(HttpMethod.Get, $"api/{kind}/details/{id}", null, ct))
+            {
+                // Fireshare answers 401 for a private image when the caller is not signed in.
+                if (res.StatusCode == HttpStatusCode.Unauthorized) return new RemoteItem { Id = id, Kind = kind, Private = true };
+                var body = res.IsSuccessStatusCode ? await res.Content.ReadAsStringAsync() : "";
+                return string.IsNullOrWhiteSpace(body) ? null : Parse<MediaJson>(body).ToRemote(kind);
+            }
         }
 
         public async Task<string> LinkAsync(string kind, string id, CancellationToken ct = default)
