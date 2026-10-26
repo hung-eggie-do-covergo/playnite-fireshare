@@ -1,3 +1,5 @@
+<img src="src/icon.png" width="96" align="right" alt="">
+
 # Fireshare Share
 
 A Playnite extension that uploads the screenshots and clips you choose to your own
