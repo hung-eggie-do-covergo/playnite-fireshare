@@ -61,10 +61,7 @@ namespace FireshareShare
             var generation = 0;
             var result = new Capture[0];
 
-            var owner = api.Dialogs.GetCurrentAppWindow();
-            var window = api.Dialogs.CreateWindow(new WindowCreationOptions { ShowCloseButton = !fullscreen, ShowMaximizeButton = false, ShowMinimizeButton = false });
-            window.Owner = owner;
-            window.Title = "Share to Fireshare";
+            Window window = null;
 
             var list = new ListBox { SelectionMode = SelectionMode.Multiple, Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
             var scroller = new FrameworkElementFactory(typeof(ScrollViewer));
@@ -80,9 +77,7 @@ namespace FireshareShare
                 foreach (ListBoxItem item in e.RemovedItems) Parts(item).Children[2].Visibility = Visibility.Collapsed;
             };
 
-            var heading = new TextBlock();
-            if (fullscreen) heading.SetResourceReference(FrameworkElement.StyleProperty, "ItemSelectionHeaderText");
-            else { heading.FontSize = 20; heading.Margin = new Thickness(0, 0, 0, 12); }
+            var heading = DialogShell.Heading(api);
 
             void Show()
             {
@@ -178,10 +173,15 @@ namespace FireshareShare
                 Show();
             }
 
-            // Playnite raises controller buttons as bubbling KeyDown events (no Preview) carrying a Button property.
+            list.Margin = new Thickness(10);
+            var hints = new List<Hint> { new Hint("ButtonPromptA", "Select"), new Hint("ButtonPromptX", "Share", Confirm) };
+            if (game != null) hints.Add(new Hint("ButtonPromptY", "Switch list", SwitchList));
+            hints.Add(new Hint("ButtonPromptB", "Back", () => window.Close()));
+            window = DialogShell.Create(api, "Share to Fireshare", heading, list, DialogShell.Footer(api, hints.ToArray()), new Size(1640, 940), new Size(1240, 780));
+
             window.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((s, e) =>
             {
-                var button = e.GetType().GetProperty("Button")?.GetValue(e)?.ToString();
+                var button = DialogShell.ControllerButton(e);
                 if (button == "A" && Keyboard.FocusedElement is ListBoxItem item) item.IsSelected = !item.IsSelected;
                 else if (button == "X" || button == "Start") Confirm();
                 else if (button == "Y") SwitchList();
@@ -190,82 +190,10 @@ namespace FireshareShare
                 e.Handled = true;
             }), true);
 
-            var content = new DockPanel();
-            DockPanel.SetDock(heading, Dock.Top);
-            content.Children.Add(heading);
-            var footer = fullscreen ? PromptFooter(game != null) : ButtonFooter(Confirm, game != null ? SwitchList : (Action)null, () => window.Close());
-            DockPanel.SetDock(footer, Dock.Bottom);
-            content.Children.Add(footer);
-            list.Margin = new Thickness(10);
-            content.Children.Add(list);
-
-            if (fullscreen)
-            {
-                // Same layout as Playnite's own fullscreen dialogs: a 1920x1080 design scaled to the screen.
-                var panel = new Border { Width = 1640, Height = 940, Child = content, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                panel.SetResourceReference(FrameworkElement.StyleProperty, "ItemSelectionBorder");
-                // Themes size this border for a narrow menu; the grid needs the room.
-                panel.MaxWidth = double.PositiveInfinity;
-                panel.MaxHeight = double.PositiveInfinity;
-                window.Content = new Viewbox { Child = new Grid { Width = 1920, Height = 1080, Children = { panel } } };
-                window.WindowStartupLocation = WindowStartupLocation.Manual;
-                window.Left = owner.Left;
-                window.Top = owner.Top;
-                window.Width = owner.ActualWidth;
-                window.Height = owner.ActualHeight;
-            }
-            else
-            {
-                content.Margin = new Thickness(20);
-                window.Content = content;
-                window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-                window.Width = 1240;
-                window.Height = 780;
-            }
-
             Show();
             window.ShowDialog();
             generation++;
             return result;
-        }
-
-        static FrameworkElement PromptFooter(bool canSwitch)
-        {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            row.Children.Add(Prompt("ButtonPromptA", "Select"));
-            row.Children.Add(Prompt("ButtonPromptX", "Share"));
-            if (canSwitch) row.Children.Add(Prompt("ButtonPromptY", "Switch list"));
-            row.Children.Add(Prompt("ButtonPromptB", "Back"));
-            var footer = new Border { Child = row };
-            footer.SetResourceReference(FrameworkElement.StyleProperty, "ItemSelectionFooterBorder");
-            return footer;
-        }
-
-        static FrameworkElement Prompt(string icon, string label)
-        {
-            var glyph = new ContentControl { Height = 26, Focusable = false, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
-            glyph.SetResourceReference(ContentControl.ContentTemplateProperty, icon);
-            var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
-            text.SetResourceReference(FrameworkElement.StyleProperty, "TextBlockBaseStyle");
-            var prompt = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(24, 0, 24, 0) };
-            prompt.Children.Add(glyph);
-            prompt.Children.Add(text);
-            return prompt;
-        }
-
-        static FrameworkElement ButtonFooter(Action share, Action switchList, Action cancel)
-        {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0) };
-            void Add(string label, Action action)
-            {
-                var button = new Button { Content = label, Padding = new Thickness(16, 6, 16, 6), Margin = new Thickness(0, 0, 8, 0) };
-                button.Click += (s, e) => action();
-                row.Children.Add(button);
-            }
-            Add("Share selected", share);
-            if (switchList != null) Add("Switch list", switchList);
-            Add("Cancel", cancel);
-            return row;
         }
 
         /// <summary>Game Bar names files after the window title and swaps characters it cannot use (":" becomes "_").</summary>

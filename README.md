@@ -40,7 +40,7 @@ Requires Fireshare 1.9 or newer.
 
 ## Use
 
-Game menu → **Share captures to Fireshare…** (under **Extensions** in fullscreen mode).
+Game menu → **Share captures to Fireshare…** (under **Extensions** in fullscreen mode). The main menu has the same entry for all captures.
 
 | Button | Action |
 | --- | --- |
@@ -50,7 +50,7 @@ Game menu → **Share captures to Fireshare…** (under **Extensions** in fullsc
 | Y | Switch between this game and all captures |
 | B | Back |
 
-Fireshare-only captures appear for games Fireshare already has. Uploads are linked to the Fireshare game of the same name.
+Fireshare-only captures appear for games Fireshare already has. Uploads are linked to the Fireshare game of the same name. When signed in, games Fireshare does not have yet are added from SteamGridDB; if the match is unclear, you pick the game.
 
 Supported files: `png`, `jpg`, `jpeg`, `webp`, `gif`, `mp4`, `m4v`, `mov`, `webm`. Fireshare does not take HDR `.jxr` screenshots; share the `.png` Game Bar saves next to them.
 

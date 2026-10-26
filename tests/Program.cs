@@ -31,6 +31,14 @@ Assert(FireshareClient.MatchCapture(new[] { "Resident Evil" }, @"Z:\c\Resident E
 Assert(FireshareClient.MatchCapture(new[] { "Unknown", "007 First Light" }, @"Z:\c\20260920_1.png", fsGames) == 7, "candidates cover filenames without the game");
 Assert(FireshareClient.MatchCapture(new string[0], @"Z:\c\PRAGMATA 10_18_2026.png", fsGames) == null, "no match leaves the game unset");
 
+// 2005 and 2023 releases share the name; the year decides, and without one nothing is guessed.
+var re4 = new[] { new GridGame { Id = 10, Name = "Resident Evil 4", ReleaseDateUnix = 1105228800 }, new GridGame { Id = 11, Name = "Resident Evil 4", ReleaseDateUnix = 1679616000 }, new GridGame { Id = 12, Name = "Resident Evil 4 VR" } };
+Assert(FireshareClient.PickGame(re4, "Resident Evil 4", 2023)?.Id == 11, "same name, the year decides");
+Assert(FireshareClient.PickGame(re4, "Resident Evil 4", null) == null, "same name without a year is not guessed");
+Assert(FireshareClient.PickGame(re4, "PRAGMATA", 2026) == null, "no exact name is not guessed");
+Assert(FireshareClient.PickGame(new[] { new GridGame { Id = 5, Name = "PRAGMATA" } }, "Pragmata", null)?.Id == 5, "a single exact name is used");
+Assert(FireshareClient.RankGames(re4, "Resident Evil 4", 2023)[0].Id == 11, "the likeliest match is offered first");
+
 Assert(FireshareClient.KindOf("a.PNG") == "image" && FireshareClient.KindOf("a.mp4") == "video" && FireshareClient.KindOf("a.jxr") == null, "kind by extension");
 
 // Live round trip, only when pointed at a real instance.

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -70,7 +71,8 @@ namespace FireshareShare
 
         public override IEnumerable<MainMenuItem> GetMainMenuItems(GetMainMenuItemsArgs args)
         {
-            yield return new MainMenuItem { MenuSection = "@Fireshare", Description = "Share captures to Fireshare…", Action = _ => Share(null) };
+            // No section puts it at the top of the main menu rather than under Extensions.
+            yield return new MainMenuItem { Description = "Share captures to Fireshare…", Action = _ => Share(null) };
         }
 
         /// <summary>Opens the capture grid for one game, or for every capture when <paramref name="game"/> is null.</summary>
@@ -105,17 +107,77 @@ namespace FireshareShare
         void Upload(string gameName, Capture[] files)
         {
             var s = settings.Settings;
-            var client = new FireshareClient(s.ServerUrl, s.Token);
+            var client = new FireshareClient(s.ServerUrl, s.Token, s.Session);
             var links = new List<string>();
             var errors = new List<string>();
+            var added = new List<string>();
             var skipped = 0;
+
+            IEnumerable<string> Candidates(Capture f) => f.GameNames.Concat(new[] { gameName }).Where(n => n != null);
+            string Owner(Capture f) => Candidates(f).FirstOrDefault();
+            List<GameRef> games = null;
+            int? Link(Capture f) => FireshareClient.MatchCapture(Candidates(f), f.Path, games);
+
+            // Read on the UI thread: the year tells same-named SteamGridDB games apart.
+            var years = files.Select(Owner).Where(n => n != null).Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(n => n, n => PlayniteApi.Database.Games.FirstOrDefault(g => string.Equals(g.Name, n, StringComparison.OrdinalIgnoreCase))?.ReleaseYear, StringComparer.OrdinalIgnoreCase);
+            var resolved = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+            var unclear = new Dictionary<string, List<GridGame>>(StringComparer.OrdinalIgnoreCase);
+
+            int? Create(GridGame game, CancellationToken ct)
+            {
+                var created = client.CreateGameAsync(game, ct).GetAwaiter().GetResult();
+                games.Add(created);
+                added.Add(created.Name);
+                return created.Id;
+            }
+
+            // Fireshare's games, and for the ones it lacks, SteamGridDB. Creating needs a signed-in session.
+            var canCreate = s.CreateMissingGames && !string.IsNullOrEmpty(s.ProtectedSession);
+            PlayniteApi.Dialogs.ActivateGlobalProgress(p =>
+            {
+                try { games = client.GamesAsync(p.CancelToken).GetAwaiter().GetResult(); }
+                catch (Exception ex) { errors.Add(ex.Message); return; }
+                if (!canCreate) return;
+
+                foreach (var name in files.Where(f => f.Path != null && Link(f) == null).Select(Owner).Where(n => n != null).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    p.Text = $"Looking up {name}";
+                    try
+                    {
+                        var results = client.SearchGamesAsync(name, p.CancelToken).GetAwaiter().GetResult();
+                        var pick = FireshareClient.PickGame(results, name, years[name]);
+                        if (pick != null) resolved[name] = Create(pick, p.CancelToken);
+                        else unclear[name] = FireshareClient.RankGames(results, name, years[name]);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, $"Could not add {name} to Fireshare");
+                        errors.Add($"{name}: {ex.Message}");
+                        resolved[name] = null;
+                    }
+                }
+            }, new GlobalProgressOptions("Checking games on Fireshare", false) { IsIndeterminate = true });
+            if (games == null)
+            {
+                PlayniteApi.Dialogs.ShowErrorMessage(string.Join(Environment.NewLine, errors), "Fireshare Share");
+                return;
+            }
+
+            // Asked only where the name and year did not settle it.
+            var chosen = unclear.ToDictionary(kv => kv.Key, kv => GameChooser.Choose(PlayniteApi, kv.Key, years[kv.Key], kv.Value), StringComparer.OrdinalIgnoreCase);
 
             PlayniteApi.Dialogs.ActivateGlobalProgress(p =>
             {
                 p.ProgressMaxValue = files.Length;
-                List<GameRef> games;
-                try { games = client.GamesAsync(p.CancelToken).GetAwaiter().GetResult(); }
-                catch (Exception ex) { errors.Add(ex.Message); return; }
+                foreach (var kv in chosen)
+                {
+                    resolved[kv.Key] = null;
+                    if (kv.Value == null) continue;
+                    p.Text = $"Adding {kv.Value.Name} to Fireshare";
+                    try { resolved[kv.Key] = Create(kv.Value, p.CancelToken); }
+                    catch (Exception ex) { errors.Add($"{kv.Value.Name}: {ex.Message}"); }
+                }
 
                 for (var i = 0; i < files.Length && !p.CancelToken.IsCancellationRequested; i++)
                 {
@@ -124,10 +186,18 @@ namespace FireshareShare
                     p.CurrentProgressValue = i;
                     try
                     {
-                        // Already on Fireshare only: nothing to upload, just its link.
-                        var result = files[i].Path == null
-                            ? new ShareResult { Link = client.LinkAsync(files[i].Remote.Kind, files[i].Remote.Id, p.CancelToken).GetAwaiter().GetResult(), AlreadyThere = true }
-                            : client.ShareAsync(files[i].Path, FireshareClient.MatchCapture(files[i].GameNames.Concat(new[] { gameName }).Where(n => n != null), files[i].Path, games), p.CancelToken).GetAwaiter().GetResult();
+                        ShareResult result;
+                        if (files[i].Path == null)
+                        {
+                            // Already on Fireshare only: nothing to upload, just its link.
+                            result = new ShareResult { Link = client.LinkAsync(files[i].Remote.Kind, files[i].Remote.Id, p.CancelToken).GetAwaiter().GetResult(), AlreadyThere = true };
+                        }
+                        else
+                        {
+                            var owner = Owner(files[i]);
+                            var gameId = Link(files[i]) ?? (owner != null && resolved.TryGetValue(owner, out var id) ? id : null);
+                            result = client.ShareAsync(files[i].Path, gameId, p.CancelToken).GetAwaiter().GetResult();
+                        }
                         links.Add(result.Link);
                         if (result.AlreadyThere) skipped++;
                     }
@@ -149,6 +219,7 @@ namespace FireshareShare
                     Clipboard.SetText(text);
                     var msg = new StringBuilder($"{links.Count} link{(links.Count == 1 ? "" : "s")} copied to the clipboard.");
                     if (skipped > 0) msg.Append($" {skipped} already on Fireshare.");
+                    if (added.Count > 0) msg.Append($" Added {string.Join(", ", added)} to Fireshare.");
                     // Fullscreen hides notifications until opened, so confirm in a dialog the controller can dismiss.
                     if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen)
                         PlayniteApi.Dialogs.ShowMessage(msg + Environment.NewLine + Environment.NewLine + text, "Shared to Fireshare");

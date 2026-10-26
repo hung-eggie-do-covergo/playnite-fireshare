@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 
 namespace FireshareShare
@@ -135,6 +136,14 @@ namespace FireshareShare
             buttons.Children.Add(signOut);
             panel.Children.Add(buttons);
             panel.Children.Add(signStatus);
+
+            var create = new CheckBox
+            {
+                Content = "Add games Fireshare does not have yet (from SteamGridDB), so uploads are linked to them",
+                Margin = new Thickness(0, 12, 0, 0),
+            };
+            create.SetBinding(ToggleButton.IsCheckedProperty, new Binding("Settings.CreateMissingGames"));
+            panel.Children.Add(create);
         }
 
         static TextBlock Label(string text) => new TextBlock { Text = text, Margin = new Thickness(0, 0, 0, 4) };

@@ -137,6 +137,39 @@ namespace FireshareShare
             }
         }
 
+        /// <summary>SteamGridDB search through Fireshare, the user's custom games first. Needs a signed-in session.</summary>
+        public async Task<List<GridGame>> SearchGamesAsync(string query, CancellationToken ct = default)
+            => await GetAsync<List<GridGame>>("api/steamgrid/search?query=" + Uri.EscapeDataString(query), ct) ?? new List<GridGame>();
+
+        /// <summary>Adds a SteamGridDB game to Fireshare, which also fetches its artwork. An existing one is returned as is.</summary>
+        public async Task<GameRef> CreateGameAsync(GridGame game, CancellationToken ct = default)
+        {
+            var body = "{\"steamgriddb_id\":" + game.Id + ",\"name\":" + JsonString(game.Name)
+                + ",\"release_date\":" + (game.Year.HasValue ? JsonString(game.ReleaseDate) : "null") + "}";
+            using (var res = await SendAsync(HttpMethod.Post, "api/games", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), ct))
+            {
+                var text = await res.Content.ReadAsStringAsync();
+                if (!res.IsSuccessStatusCode) throw Fail(res, text);
+                return Parse<GameRef>(text);
+            }
+        }
+
+        /// <summary>The search result to use without asking: the only exact-name match, or the only one of those from the same year.</summary>
+        public static GridGame PickGame(IList<GridGame> results, string name, int? year)
+        {
+            var exact = results.Where(r => Key(r.Name) == Key(name)).ToList();
+            if (exact.Count == 1) return exact[0];
+            var sameYear = exact.Where(r => year.HasValue && r.Year == year).ToList();
+            return sameYear.Count == 1 ? sameYear[0] : null;
+        }
+
+        /// <summary>Results in the order to offer them: exact name, then same year, then verified.</summary>
+        public static List<GridGame> RankGames(IEnumerable<GridGame> results, string name, int? year)
+            => results.OrderByDescending(r => Key(r.Name) == Key(name))
+                      .ThenByDescending(r => year.HasValue && r.Year == year)
+                      .ThenByDescending(r => r.Verified)
+                      .ToList();
+
         public async Task<string> LinkAsync(string kind, string id, CancellationToken ct = default)
             => await LinkBaseAsync(ct) + (kind == "video" ? "/w/" : "/i/") + id;
 
@@ -273,6 +306,17 @@ namespace FireshareShare
         [DataMember(Name = "id")] public int Id;
         [DataMember(Name = "name")] public string Name;
         [DataMember(Name = "steamgriddb_id")] public int? SteamGridDbId;
+    }
+
+    [DataContract] public class GridGame
+    {
+        [DataMember(Name = "id")] public int Id;
+        [DataMember(Name = "name")] public string Name;
+        [DataMember(Name = "release_date")] public long? ReleaseDateUnix;
+        [DataMember(Name = "verified")] public bool Verified;
+
+        public int? Year => ReleaseDateUnix > 0 ? DateTimeOffset.FromUnixTimeSeconds(ReleaseDateUnix.Value).Year : (int?)null;
+        public string ReleaseDate => ReleaseDateUnix > 0 ? DateTimeOffset.FromUnixTimeSeconds(ReleaseDateUnix.Value).ToString("yyyy-MM-dd") : null;
     }
 
     public class RemoteItem

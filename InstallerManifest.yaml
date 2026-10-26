@@ -1,5 +1,12 @@
 AddonId: eggie_FireshareShare
 Packages:
+  - Version: 0.1.2
+    RequiredApiVersion: 6.18.0
+    ReleaseDate: 2026-10-26
+    PackageUrl: https://github.com/hung-eggie-do-covergo/playnite-fireshare/releases/download/v0.1.2/FireshareShare-0.1.2.pext
+    Changelog:
+      - Adds games Fireshare does not have yet, found through SteamGridDB, and asks which one when the match is unclear.
+      - The share entry sits in the main menu instead of under Extensions.
   - Version: 0.1.1
     RequiredApiVersion: 6.18.0
     ReleaseDate: 2026-10-26

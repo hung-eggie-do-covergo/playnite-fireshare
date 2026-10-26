@@ -30,6 +30,10 @@ namespace FireshareShare
         public string ProtectedSession { get => protectedSession; set => SetValue(ref protectedSession, value); }
         public string SessionUser { get => sessionUser; set => SetValue(ref sessionUser, value); }
 
+        bool createMissingGames = true;
+        /// <summary>With a session, add games Fireshare lacks from SteamGridDB so uploads can be linked.</summary>
+        public bool CreateMissingGames { get => createMissingGames; set => SetValue(ref createMissingGames, value); }
+
         [DontSerialize]
         public string Session { get => Unprotect(ProtectedSession); set => ProtectedSession = Protect(value); }
 
