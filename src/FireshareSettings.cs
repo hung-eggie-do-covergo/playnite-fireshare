@@ -12,7 +12,8 @@ namespace FireshareShare
     {
         string serverUrl = "";
         string protectedToken = "";
-        string capturesFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Videos", "Captures");
+        // Where Xbox Game Bar saves; follows a redirected Videos folder.
+        string capturesFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Captures");
 
         public string ServerUrl { get => serverUrl; set => SetValue(ref serverUrl, value); }
         public string CapturesFolder { get => capturesFolder; set => SetValue(ref capturesFolder, value); }

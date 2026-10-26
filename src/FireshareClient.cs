@@ -33,6 +33,17 @@ namespace FireshareShare
             this.token = token;
         }
 
+        /// <summary>Playnite ships an older System.Memory with no binding redirect, so load ours from the plugin folder.</summary>
+        public static void UseBundledDependencies()
+        {
+            var dir = Path.GetDirectoryName(typeof(FireshareClient).Assembly.Location);
+            AppDomain.CurrentDomain.AssemblyResolve += (s, e) =>
+            {
+                var path = Path.Combine(dir, new System.Reflection.AssemblyName(e.Name).Name + ".dll");
+                return File.Exists(path) ? System.Reflection.Assembly.LoadFrom(path) : null;
+            };
+        }
+
         public static string KindOf(string path)
         {
             var ext = Path.GetExtension(path).TrimStart('.').ToLowerInvariant();

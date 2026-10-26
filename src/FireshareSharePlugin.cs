@@ -20,12 +20,18 @@ namespace FireshareShare
 
         public override Guid Id { get; } = Guid.Parse("b79d614b-e840-4041-b2ed-13cd5c6d061d");
 
+        /// <summary>Bound by themes as {PluginSettings Plugin=FireshareShare, Path=ShareCommand}.</summary>
+        public ThemeCommands Commands { get; }
+
         public FireshareSharePlugin(IPlayniteAPI api) : base(api)
         {
             // .NET Framework 4.6.2 does not offer TLS 1.2 unless asked.
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+            FireshareClient.UseBundledDependencies();
             settings = new FireshareSettingsViewModel(this);
             Properties = new GenericPluginProperties { HasSettings = true };
+            Commands = new ThemeCommands { ShareCommand = new RelayCommand<object>(ShareFromTheme) };
+            AddSettingsSupport(new AddSettingsSupportArgs { SourceName = "FireshareShare", SettingsRoot = nameof(Commands) });
         }
 
         public override ISettings GetSettings(bool firstRunSettings) => settings;
@@ -41,16 +47,29 @@ namespace FireshareShare
 
         void Share(Game game)
         {
+            if (!EnsureConfigured()) return;
+            var files = CapturePicker.Pick(PlayniteApi, game.Name, settings.Settings.CapturesFolder);
+            if (files.Length > 0) Upload(game.Name, files);
+        }
+
+        /// <summary>Shares one screenshot a theme passes in: a path, or an item with a FileName (ScreenshotsVisualizer's).</summary>
+        void ShareFromTheme(object item)
+        {
+            var path = item as string ?? item?.GetType().GetProperty("FileName")?.GetValue(item) as string;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path) || !EnsureConfigured()) return;
+            Upload(PlayniteApi.MainView.SelectedGames?.FirstOrDefault()?.Name, new[] { path });
+        }
+
+        bool EnsureConfigured()
+        {
+            if (settings.Settings.IsConfigured) return true;
+            PlayniteApi.Dialogs.ShowErrorMessage("Set the Fireshare URL and upload token first, under Add-ons → Extension settings → Fireshare Share.", "Fireshare Share");
+            return false;
+        }
+
+        void Upload(string gameName, string[] files)
+        {
             var s = settings.Settings;
-            if (!s.IsConfigured)
-            {
-                PlayniteApi.Dialogs.ShowErrorMessage("Set the Fireshare URL and upload token first, under Add-ons → Extension settings → Fireshare Share.", "Fireshare Share");
-                return;
-            }
-
-            var files = PickCaptures(game, s.CapturesFolder);
-            if (files.Length == 0) return;
-
             var client = new FireshareClient(s.ServerUrl, s.Token);
             var links = new List<string>();
             var errors = new List<string>();
@@ -60,7 +79,7 @@ namespace FireshareShare
             {
                 p.ProgressMaxValue = files.Length;
                 int? gameId = null;
-                try { gameId = FireshareClient.MatchGame(game.Name, client.GamesAsync(p.CancelToken).GetAwaiter().GetResult()); }
+                try { if (gameName != null) gameId = FireshareClient.MatchGame(gameName, client.GamesAsync(p.CancelToken).GetAwaiter().GetResult()); }
                 catch (Exception ex) { errors.Add(ex.Message); return; }
 
                 for (var i = 0; i < files.Length && !p.CancelToken.IsCancellationRequested; i++)
@@ -92,7 +111,11 @@ namespace FireshareShare
                     Clipboard.SetText(text);
                     var msg = new StringBuilder($"{links.Count} link{(links.Count == 1 ? "" : "s")} copied to the clipboard.");
                     if (skipped > 0) msg.Append($" {skipped} already on Fireshare.");
-                    PlayniteApi.Notifications.Add(new NotificationMessage("fireshare-share-" + Guid.NewGuid(), msg.ToString(), NotificationType.Info));
+                    // Fullscreen hides notifications until opened, so confirm in a dialog the controller can dismiss.
+                    if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen)
+                        PlayniteApi.Dialogs.ShowMessage(msg + Environment.NewLine + Environment.NewLine + text, "Shared to Fireshare");
+                    else
+                        PlayniteApi.Notifications.Add(new NotificationMessage("fireshare-share-" + Guid.NewGuid(), msg.ToString(), NotificationType.Info));
                 }
                 // Another app can hold the clipboard; show the links instead of losing them.
                 catch (Exception) { PlayniteApi.Dialogs.ShowMessage(text, "Fireshare links"); }
@@ -100,25 +123,10 @@ namespace FireshareShare
             if (errors.Count > 0)
                 PlayniteApi.Dialogs.ShowErrorMessage(string.Join(Environment.NewLine, errors), "Fireshare Share");
         }
+    }
 
-        string[] PickCaptures(Game game, string folder)
-        {
-            var types = FireshareClient.ImageTypes.Concat(FireshareClient.VideoTypes).ToArray();
-            // Game Bar names captures after the window title, which may differ from Playnite's name.
-            var prefix = new string(game.Name.Where(c => !Path.GetInvalidFileNameChars().Contains(c) && c != ';' && c != '|').ToArray()).Trim();
-            var gameFilter = string.Join(";", types.Select(t => $"{prefix}*.{t}"));
-            var allFilter = string.Join(";", types.Select(t => $"*.{t}"));
-            var hasMatches = Directory.Exists(folder) && types.Any(t => Directory.EnumerateFiles(folder, $"{prefix}*.{t}").Any());
-
-            var dialog = new Microsoft.Win32.OpenFileDialog
-            {
-                Title = $"Share {game.Name} captures to Fireshare",
-                Multiselect = true,
-                InitialDirectory = Directory.Exists(folder) ? folder : null,
-                Filter = $"{prefix} captures|{gameFilter}|All captures|{allFilter}",
-                FilterIndex = hasMatches ? 1 : 2,
-            };
-            return dialog.ShowDialog(PlayniteApi.Dialogs.GetCurrentAppWindow()) == true ? dialog.FileNames : new string[0];
-        }
+    public class ThemeCommands
+    {
+        public RelayCommand<object> ShareCommand { get; set; }
     }
 }
