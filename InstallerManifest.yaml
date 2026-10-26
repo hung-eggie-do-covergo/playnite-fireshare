@@ -1,5 +1,12 @@
 AddonId: eggie_FireshareShare
 Packages:
+  - Version: 0.1.1
+    RequiredApiVersion: 6.18.0
+    ReleaseDate: 2026-10-26
+    PackageUrl: https://github.com/hung-eggie-do-covergo/playnite-fireshare/releases/download/v0.1.1/FireshareShare-0.1.1.pext
+    Changelog:
+      - No longer ships its own System.Memory and related assemblies, as Playnite's plugin rules require.
+      - Adds an icon.
   - Version: 0.1.0
     RequiredApiVersion: 6.18.0
     ReleaseDate: 2026-10-26

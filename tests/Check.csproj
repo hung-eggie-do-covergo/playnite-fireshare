@@ -6,6 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../src/FireshareClient.cs" />
-    <PackageReference Include="System.IO.Hashing" Version="10.0.14" />
+    <Compile Include="../src/Xxh3.cs" />
   </ItemGroup>
 </Project>

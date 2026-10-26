@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Hashing;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -65,17 +64,6 @@ namespace FireshareShare
             }
         }
 
-        /// <summary>Playnite ships an older System.Memory with no binding redirect, so load ours from the plugin folder.</summary>
-        public static void UseBundledDependencies()
-        {
-            var dir = Path.GetDirectoryName(typeof(FireshareClient).Assembly.Location);
-            AppDomain.CurrentDomain.AssemblyResolve += (s, e) =>
-            {
-                var path = Path.Combine(dir, new System.Reflection.AssemblyName(e.Name).Name + ".dll");
-                return File.Exists(path) ? System.Reflection.Assembly.LoadFrom(path) : null;
-            };
-        }
-
         public static string KindOf(string path)
         {
             var ext = Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
@@ -91,8 +79,7 @@ namespace FireshareShare
             int read = 0, n;
             using (var f = File.OpenRead(path))
                 while (read < buffer.Length && (n = f.Read(buffer, read, buffer.Length - read)) > 0) read += n;
-            var hash = XxHash128.Hash(new ReadOnlySpan<byte>(buffer, 0, read));
-            return string.Concat(hash.Select(b => b.ToString("x2")));
+            return Xxh3.Hash128Hex(buffer, read);
         }
 
         /// <summary>Fireshare only links games it already has; compare names ignoring case, symbols and spacing.</summary>

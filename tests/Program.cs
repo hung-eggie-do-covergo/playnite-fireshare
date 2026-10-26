@@ -13,6 +13,13 @@ var big = Path.GetTempFileName();
 File.WriteAllBytes(big, Enumerable.Range(0, 20 * 1024 * 1024).Select(i => (byte)(i % 251)).ToArray());
 Assert(FireshareClient.MediaId(big) == "3d36a2c3df632134658eb3c8c8b637b8", "id covers only the first 16 MiB");
 
+// Every length class of XXH3-128 (0-16, 17-128, 129-240, long), against Python's xxhash.
+var lens = Enumerable.Range(0, 301).Concat(new[] { 511, 512, 1023, 1024, 1025, 4096, 10000, 65536, 1048577 }).ToArray();
+var data = Enumerable.Range(0, lens.Max()).Select(i => (byte)((i * 31 + 7) % 256)).ToArray();
+var all = string.Concat(lens.Select(n => Xxh3.Hash128Hex(data, n)));
+var digest = string.Concat(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(all)).Select(b => b.ToString("x2")));
+Assert(digest == "b2185d9b3b1b3c33da6c5fbc81fedc871d42519b58effeec06d61206bb876387", "xxh3-128 matches the reference at every length");
+
 var games = new[] { new GameRef { Id = 7, Name = "ELDEN RING™" }, new GameRef { Id = 9, Name = "Baldur's Gate 3" } };
 Assert(FireshareClient.MatchGame("Elden Ring", games) == 7, "match ignores case and symbols");
 Assert(FireshareClient.MatchGame("Baldurs Gate 3", games) == 9, "match ignores punctuation");

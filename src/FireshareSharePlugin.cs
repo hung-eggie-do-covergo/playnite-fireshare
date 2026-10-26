@@ -30,7 +30,6 @@ namespace FireshareShare
         {
             // .NET Framework 4.6.2 does not offer TLS 1.2 unless asked.
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-            FireshareClient.UseBundledDependencies();
             settings = new FireshareSettingsViewModel(this);
             ids = new Lazy<MediaIdCache>(() => new MediaIdCache(Path.Combine(GetPluginUserDataPath(), "media-ids.tsv")));
             Properties = new GenericPluginProperties { HasSettings = true };
