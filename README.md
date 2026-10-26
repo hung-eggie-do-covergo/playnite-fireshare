@@ -20,6 +20,7 @@ Requires Fireshare 1.9 or newer, which added upload tokens.
 In the game menu, choose **Share captures to Fireshare…**. In fullscreen mode it is under **Extensions**.
 
 - A grid shows the game's newest captures from your captures folder. It defaults to `Videos\Captures`, where Xbox Game Bar saves.
+- Each capture is badged **Local**, **Local + Fireshare** or **Fireshare**. Captures that are only on Fireshare show too; sharing one copies its link without uploading. Fireshare lists public items of games it already has.
 - Controller: D-pad moves, **A** selects, **X** shares, **Y** switches between this game and all captures, **B** goes back. With nothing selected, **X** shares the focused capture.
 - Mouse and keyboard work too.
 - The links are copied to the clipboard, one per line. Fullscreen mode also shows them in a dialog.

@@ -14,6 +14,15 @@ using Playnite.SDK;
 
 namespace FireshareShare
 {
+    /// <summary>One grid entry: a local file, a Fireshare item, or both once matched.</summary>
+    public class Capture
+    {
+        public string Path;
+        public RemoteItem Remote;
+        public DateTime Date;
+        public string Kind => Path != null ? FireshareClient.KindOf(Path) : Remote.Kind;
+    }
+
     /// <summary>Steam-style capture grid. Mouse and keyboard everywhere, a controller in fullscreen mode.</summary>
     public static class CapturePicker
     {
@@ -27,12 +36,14 @@ namespace FireshareShare
 
         static readonly ControlTemplate BareItem = new ControlTemplate(typeof(ListBoxItem)) { VisualTree = new FrameworkElementFactory(typeof(ContentPresenter)) };
 
-        public static string[] Pick(IPlayniteAPI api, string gameName, string folder)
+        enum Where { Local, Both, Remote }
+
+        public static Capture[] Pick(IPlayniteAPI api, string gameName, string folder, FireshareClient client, MediaIdCache ids)
         {
             if (!Directory.Exists(folder))
             {
                 api.Dialogs.ShowErrorMessage($"Captures folder not found: {folder}", "Fireshare Share");
-                return new string[0];
+                return new Capture[0];
             }
 
             var fullscreen = api.ApplicationInfo.Mode == ApplicationMode.Fullscreen;
@@ -40,7 +51,7 @@ namespace FireshareShare
             var allFiles = Find(folder, "");
             var showingAll = gameFiles.Count == 0;
             var generation = 0;
-            string[] result = new string[0];
+            var result = new Capture[0];
 
             var owner = api.Dialogs.GetCurrentAppWindow();
             var window = api.Dialogs.CreateWindow(new WindowCreationOptions { ShowCloseButton = !fullscreen, ShowMaximizeButton = false, ShowMinimizeButton = false });
@@ -71,21 +82,63 @@ namespace FireshareShare
                 var files = showingAll ? allFiles : gameFiles;
                 heading.Text = files.Count == 0 ? "No captures found" : (showingAll ? "All captures" : $"{gameName} captures");
                 list.Items.Clear();
-                var tiles = files.Take(MaxShown).Select(Tile).ToList();
+                var captures = files.Take(MaxShown).Select(f => new Capture { Path = f, Date = File.GetLastWriteTime(f) }).ToList();
+                var tiles = captures.Select(Tile).ToList();
                 tiles.ForEach(t => list.Items.Add(t));
                 if (tiles.Count > 0) window.Dispatcher.BeginInvoke(new Action(() => tiles[0].Focus()), System.Windows.Threading.DispatcherPriority.Loaded);
+                // Fireshare lists per game, so the all-captures view stays local.
+                var withRemote = !showingAll;
+
+                void Post(Action action) => window.Dispatcher.BeginInvoke(action);
 
                 // WPF decodes images reliably only on STA threads; a newer list stops an older load.
-                // The loader touches only paths: the tiles belong to the UI thread.
-                var paths = tiles.Select(t => (string)t.Tag).ToList();
+                // The loader reads Capture objects only: the tiles belong to the UI thread.
                 var loader = new Thread(() =>
                 {
-                    for (var i = 0; i < paths.Count; i++)
+                    Dictionary<string, RemoteItem> remote = null;
+                    if (withRemote)
+                    {
+                        try { remote = client.GameMediaAsync(gameName).GetAwaiter().GetResult().GroupBy(r => r.Id).ToDictionary(g => g.Key, g => g.First()); }
+                        catch (Exception ex) { logger.Warn(ex, "Could not list Fireshare captures"); }
+                    }
+
+                    var localIds = new HashSet<string>();
+                    for (var i = 0; i < captures.Count; i++)
                     {
                         if (gen != generation) return;
-                        var thumb = Thumbnail(paths[i]);
                         var tile = tiles[i];
-                        if (thumb != null) window.Dispatcher.BeginInvoke(new Action(() => ((Image)Parts(tile).Children[0]).Source = thumb));
+                        var thumb = Thumbnail(captures[i].Path);
+                        if (thumb != null) Post(() => SetThumb(tile, thumb));
+                        if (remote == null) continue;
+
+                        string id;
+                        try { id = ids.Get(captures[i].Path); }
+                        catch (Exception ex) { logger.Warn(ex, $"Could not hash {captures[i].Path}"); continue; }
+                        localIds.Add(id);
+                        remote.TryGetValue(id, out var match);
+                        captures[i].Remote = match;
+                        Post(() => SetBadge(tile, match != null ? Where.Both : Where.Local));
+                    }
+                    if (remote == null) return;
+
+                    foreach (var item in remote.Values.Where(r => !localIds.Contains(r.Id)).OrderByDescending(r => r.Date))
+                    {
+                        if (gen != generation) return;
+                        var capture = new Capture { Remote = item, Date = item.Date };
+                        ListBoxItem tile = null;
+                        window.Dispatcher.Invoke(() =>
+                        {
+                            tile = Tile(capture);
+                            SetBadge(tile, Where.Remote);
+                            // Newest first, matching the local order.
+                            var at = list.Items.Cast<ListBoxItem>().TakeWhile(t => ((Capture)t.Tag).Date >= capture.Date).Count();
+                            list.Items.Insert(at, tile);
+                        });
+                        byte[] bytes = null;
+                        try { bytes = client.ThumbnailAsync(item).GetAwaiter().GetResult(); }
+                        catch (Exception ex) { logger.Warn(ex, $"No Fireshare thumbnail for {item.Id}"); }
+                        var thumb = Decode(bytes);
+                        if (thumb != null) Post(() => SetThumb(tile, thumb));
                     }
                 }) { IsBackground = true };
                 loader.SetApartmentState(ApartmentState.STA);
@@ -97,7 +150,7 @@ namespace FireshareShare
                 var picked = list.SelectedItems.Cast<ListBoxItem>().ToList();
                 // Nothing ticked shares the focused capture, so one quick share is one button.
                 if (picked.Count == 0 && Keyboard.FocusedElement is ListBoxItem focused) picked.Add(focused);
-                result = picked.Select(i => (string)i.Tag).ToArray();
+                result = picked.Select(i => (Capture)i.Tag).ToArray();
                 window.Close();
             }
 
@@ -209,14 +262,15 @@ namespace FireshareShare
                  .Select(f => f.FullName)
                  .ToList();
 
-        static ListBoxItem Tile(string path)
+        static ListBoxItem Tile(Capture capture)
         {
-            var video = FireshareClient.KindOf(path) == "video";
+            var video = capture.Kind == "video";
             var grid = new Grid { Width = TileWidth, Height = TileHeight, ClipToBounds = true, Background = new SolidColorBrush(Color.FromRgb(36, 36, 40)) };
             grid.Children.Add(new Image { Stretch = Stretch.UniformToFill });
             grid.Children.Add(new TextBlock
             {
-                Text = (video ? "▶  " : "") + File.GetLastWriteTime(path).ToString("g"),
+                // A midnight Fireshare date carries no time; showing 12:00 AM would be invented.
+                Text = (video ? "▶  " : "") + capture.Date.ToString(capture.Path == null && capture.Date.TimeOfDay == TimeSpan.Zero ? "d" : "g"),
                 Foreground = Brushes.White,
                 FontSize = 16,
                 Background = new SolidColorBrush(Color.FromArgb(170, 0, 0, 0)),
@@ -231,15 +285,54 @@ namespace FireshareShare
                 Visibility = Visibility.Collapsed,
                 Child = new TextBlock { Text = "✓", Foreground = Brushes.White, FontSize = 22, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
             });
+            grid.Children.Add(new Border
+            {
+                CornerRadius = new CornerRadius(4), Margin = new Thickness(10), Padding = new Thickness(8, 3, 8, 3),
+                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+                Visibility = Visibility.Collapsed,
+                Child = new TextBlock { Foreground = Brushes.White, FontSize = 14 },
+            });
 
             var frame = new Border { BorderThickness = new Thickness(4), BorderBrush = Brushes.Transparent, CornerRadius = new CornerRadius(4), Child = grid };
-            var item = new ListBoxItem { Content = frame, Tag = path, Margin = new Thickness(6), Template = BareItem, FocusVisualStyle = null };
+            var item = new ListBoxItem { Content = frame, Tag = capture, Margin = new Thickness(6), Template = BareItem, FocusVisualStyle = null };
             item.GotKeyboardFocus += (s, e) => frame.BorderBrush = Brushes.White;
             item.LostKeyboardFocus += (s, e) => frame.BorderBrush = Brushes.Transparent;
             return item;
         }
 
+        static void SetThumb(ListBoxItem tile, BitmapSource thumb) => ((Image)Parts(tile).Children[0]).Source = thumb;
+
+        static void SetBadge(ListBoxItem tile, Where where)
+        {
+            var pill = (Border)Parts(tile).Children[3];
+            ((TextBlock)pill.Child).Text = where == Where.Local ? "Local" : where == Where.Both ? "Local + Fireshare" : "Fireshare";
+            pill.Background = new SolidColorBrush(where == Where.Local ? Color.FromArgb(200, 70, 70, 76)
+                : where == Where.Both ? Color.FromRgb(46, 158, 91) : Color.FromRgb(139, 92, 246));
+            pill.Visibility = Visibility.Visible;
+        }
+
         static Grid Parts(ListBoxItem item) => (Grid)((Border)item.Content).Child;
+
+        static BitmapSource Decode(byte[] bytes)
+        {
+            if (bytes == null) return null;
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.StreamSource = new MemoryStream(bytes);
+                bmp.DecodePixelWidth = 640;
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.EndInit();
+                bmp.Freeze();
+                return bmp;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "Could not decode a Fireshare thumbnail");
+                return null;
+            }
+        }
 
         static BitmapSource Thumbnail(string path)
         {

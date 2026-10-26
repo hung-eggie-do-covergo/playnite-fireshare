@@ -64,11 +64,13 @@ namespace FireshareShare
         }
 
         /// <summary>Fireshare only links games it already has; compare names ignoring case, symbols and spacing.</summary>
-        public static int? MatchGame(string name, IEnumerable<GameRef> games)
+        public static int? MatchGame(string name, IEnumerable<GameRef> games) => MatchGameRef(name, games)?.Id;
+
+        public static GameRef MatchGameRef(string name, IEnumerable<GameRef> games)
         {
             string Key(string n) => new string((n ?? "").Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
             var key = Key(name);
-            return games.FirstOrDefault(g => Key(g.Name) == key)?.Id;
+            return key.Length == 0 ? null : games.FirstOrDefault(g => Key(g.Name) == key);
         }
 
         public async Task<TokenCheck> CheckAsync(CancellationToken ct = default)
@@ -76,6 +78,31 @@ namespace FireshareShare
 
         public async Task<List<GameRef>> GamesAsync(CancellationToken ct = default)
             => (await GetAsync<UploadOptions>("api/upload/token/options", ct)).Games ?? new List<GameRef>();
+
+        /// <summary>The game's public images and clips on Fireshare; empty when Fireshare has no such game.</summary>
+        public async Task<List<RemoteItem>> GameMediaAsync(string gameName, CancellationToken ct = default)
+        {
+            var items = new List<RemoteItem>();
+            var game = MatchGameRef(gameName, await GamesAsync(ct));
+            if (game?.SteamGridDbId == null) return items;
+
+            // Anonymous reads: the token is not a session, so these list public items only.
+            foreach (var media in await GetListAsync<MediaJson>($"api/games/{game.SteamGridDbId}/images", ct))
+                items.Add(media.ToRemote("image"));
+            foreach (var media in await GetListAsync<MediaJson>($"api/games/{game.SteamGridDbId}/videos", ct))
+                items.Add(media.ToRemote("video"));
+            return items;
+        }
+
+        public async Task<string> LinkAsync(string kind, string id, CancellationToken ct = default)
+            => await LinkBaseAsync(ct) + (kind == "video" ? "/w/" : "/i/") + id;
+
+        public async Task<byte[]> ThumbnailAsync(RemoteItem item, CancellationToken ct = default)
+        {
+            var path = item.Kind == "video" ? "api/video/poster?id=" : "api/image/thumbnail?id=";
+            using (var res = await SendAsync(HttpMethod.Get, path + item.Id, null, ct))
+                return res.IsSuccessStatusCode ? await res.Content.ReadAsByteArrayAsync() : null;
+        }
 
         /// <summary>Uploads one file unless Fireshare already has it, and returns its share link.</summary>
         public async Task<ShareResult> ShareAsync(string path, int? gameId, CancellationToken ct = default)
@@ -85,7 +112,7 @@ namespace FireshareShare
             if (size == 0) throw new InvalidOperationException("The file is empty.");
 
             var id = MediaId(path);
-            var link = await LinkBaseAsync(ct) + (kind == "video" ? "/w/" : "/i/") + id;
+            var link = await LinkAsync(kind, id, ct);
 
             var exists = await GetAsync<ExistsResponse>($"api/upload/token/exists?{kind}_id={id}", ct);
             if (exists.Exists) return new ShareResult { Link = link, AlreadyThere = true };
@@ -147,6 +174,17 @@ namespace FireshareShare
             }
         }
 
+        async Task<List<T>> GetListAsync<T>(string path, CancellationToken ct)
+        {
+            using (var res = await SendAsync(HttpMethod.Get, path, null, ct))
+            {
+                var body = await res.Content.ReadAsStringAsync();
+                if (res.StatusCode == HttpStatusCode.NotFound) return new List<T>();
+                if (!res.IsSuccessStatusCode) throw Fail(res, body);
+                return Parse<List<T>>(body) ?? new List<T>();
+            }
+        }
+
         Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent content, CancellationToken ct)
         {
             var req = new HttpRequestMessage(method, new Uri(baseUri, path)) { Content = content };
@@ -190,6 +228,37 @@ namespace FireshareShare
     {
         [DataMember(Name = "id")] public int Id;
         [DataMember(Name = "name")] public string Name;
+        [DataMember(Name = "steamgriddb_id")] public int? SteamGridDbId;
+    }
+
+    public class RemoteItem
+    {
+        public string Id;
+        public string Kind;
+        public DateTime Date;
+        public string Title;
+    }
+
+    [DataContract] class MediaJson
+    {
+        [DataMember(Name = "image_id")] public string ImageId;
+        [DataMember(Name = "video_id")] public string VideoId;
+        [DataMember(Name = "recorded_at")] public string RecordedAt;
+        [DataMember(Name = "created_at")] public string CreatedAt;
+        [DataMember(Name = "info")] public MediaInfoJson Info;
+
+        public RemoteItem ToRemote(string kind)
+        {
+            // Fireshare usually dates captures from the filename, so the timestamp is local, often midnight.
+            DateTime.TryParse(RecordedAt ?? CreatedAt, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var date);
+            return new RemoteItem { Id = ImageId ?? VideoId, Kind = kind, Date = date, Title = Info?.Title };
+        }
+    }
+
+    [DataContract] class MediaInfoJson
+    {
+        [DataMember(Name = "title")] public string Title;
     }
 
     [DataContract] class UploadOptions

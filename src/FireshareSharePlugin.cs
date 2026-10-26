@@ -17,6 +17,7 @@ namespace FireshareShare
         static readonly ILogger logger = LogManager.GetLogger();
 
         readonly FireshareSettingsViewModel settings;
+        readonly Lazy<MediaIdCache> ids;
 
         public override Guid Id { get; } = Guid.Parse("b79d614b-e840-4041-b2ed-13cd5c6d061d");
 
@@ -29,6 +30,7 @@ namespace FireshareShare
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
             FireshareClient.UseBundledDependencies();
             settings = new FireshareSettingsViewModel(this);
+            ids = new Lazy<MediaIdCache>(() => new MediaIdCache(Path.Combine(GetPluginUserDataPath(), "media-ids.tsv")));
             Properties = new GenericPluginProperties { HasSettings = true };
             Commands = new ThemeCommands { ShareCommand = new RelayCommand<object>(ShareFromTheme) };
             AddSettingsSupport(new AddSettingsSupportArgs { SourceName = "FireshareShare", SettingsRoot = nameof(Commands) });
@@ -48,8 +50,11 @@ namespace FireshareShare
         void Share(Game game)
         {
             if (!EnsureConfigured()) return;
-            var files = CapturePicker.Pick(PlayniteApi, game.Name, settings.Settings.CapturesFolder);
-            if (files.Length > 0) Upload(game.Name, files);
+            var s = settings.Settings;
+            var picked = CapturePicker.Pick(PlayniteApi, game.Name, s.CapturesFolder, new FireshareClient(s.ServerUrl, s.Token), ids.Value);
+            if (picked.Length > 0) Upload(game.Name, picked);
+            try { ids.Value.Save(); }
+            catch (Exception ex) { logger.Warn(ex, "Could not save the media id cache"); }
         }
 
         /// <summary>Shares one screenshot a theme passes in: a path, or an item with a FileName (ScreenshotsVisualizer's).</summary>
@@ -57,7 +62,7 @@ namespace FireshareShare
         {
             var path = item as string ?? item?.GetType().GetProperty("FileName")?.GetValue(item) as string;
             if (string.IsNullOrEmpty(path) || !File.Exists(path) || !EnsureConfigured()) return;
-            Upload(PlayniteApi.MainView.SelectedGames?.FirstOrDefault()?.Name, new[] { path });
+            Upload(PlayniteApi.MainView.SelectedGames?.FirstOrDefault()?.Name, new[] { new Capture { Path = path } });
         }
 
         bool EnsureConfigured()
@@ -67,7 +72,7 @@ namespace FireshareShare
             return false;
         }
 
-        void Upload(string gameName, string[] files)
+        void Upload(string gameName, Capture[] files)
         {
             var s = settings.Settings;
             var client = new FireshareClient(s.ServerUrl, s.Token);
@@ -84,12 +89,15 @@ namespace FireshareShare
 
                 for (var i = 0; i < files.Length && !p.CancelToken.IsCancellationRequested; i++)
                 {
-                    var name = Path.GetFileName(files[i]);
+                    var name = files[i].Path != null ? Path.GetFileName(files[i].Path) : files[i].Remote.Title ?? files[i].Remote.Id;
                     p.Text = $"Sharing {name} ({i + 1}/{files.Length})";
                     p.CurrentProgressValue = i;
                     try
                     {
-                        var result = client.ShareAsync(files[i], gameId, p.CancelToken).GetAwaiter().GetResult();
+                        // Already on Fireshare only: nothing to upload, just its link.
+                        var result = files[i].Path == null
+                            ? new ShareResult { Link = client.LinkAsync(files[i].Remote.Kind, files[i].Remote.Id, p.CancelToken).GetAwaiter().GetResult(), AlreadyThere = true }
+                            : client.ShareAsync(files[i].Path, gameId, p.CancelToken).GetAwaiter().GetResult();
                         links.Add(result.Link);
                         if (result.AlreadyThere) skipped++;
                     }
@@ -97,7 +105,7 @@ namespace FireshareShare
                     catch (OperationCanceledException) when (p.CancelToken.IsCancellationRequested) { break; }
                     catch (Exception ex)
                     {
-                        logger.Error(ex, $"Fireshare upload failed: {files[i]}");
+                        logger.Error(ex, $"Fireshare upload failed: {name}");
                         errors.Add($"{name}: {ex.Message}");
                     }
                 }
