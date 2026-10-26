@@ -32,6 +32,8 @@ Supported files: `png`, `jpg`, `jpeg`, `webp`, `gif`, `mp4`, `m4v`, `mov`, `webm
 
 The token is stored encrypted with Windows DPAPI for your user account.
 
+In fullscreen mode, pressing **X** on a ScreenshotsVisualizer screenshot shares it, in any theme that shows them (for example in a game's Screenshots section). A theme that binds X there itself keeps it.
+
 ## Theme integration
 
 Themes can offer a share button wherever they show a screenshot. The command takes a file path, or an item with a `FileName` property such as a ScreenshotsVisualizer screenshot:

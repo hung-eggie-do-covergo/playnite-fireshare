@@ -6,8 +6,10 @@ using System.Net;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using Playnite.SDK;
 using Playnite.SDK.Models;
+using Playnite.SDK.Events;
 using Playnite.SDK.Plugins;
 
 namespace FireshareShare
@@ -36,6 +38,26 @@ namespace FireshareShare
             AddSettingsSupport(new AddSettingsSupportArgs { SourceName = "FireshareShare", SettingsRoot = nameof(Commands) });
         }
 
+        public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
+        {
+            // Controller X on a ScreenshotsVisualizer screenshot shares it, in any theme, without editing theme files.
+            EventManager.RegisterClassHandler(typeof(Window), UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown));
+        }
+
+        /// <summary>Runs only for keys nothing else handled, so a theme that binds X itself keeps it.</summary>
+        void OnKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.GetType().GetProperty("Button")?.GetValue(e)?.ToString() != "X") return;
+            var item = (Keyboard.FocusedElement as FrameworkElement)?.DataContext;
+            if (item?.GetType().FullName != "ScreenshotsVisualizer.Models.Screenshot")
+            {
+                logger.Debug($"X on {item?.GetType().FullName ?? "nothing"}, not a ScreenshotsVisualizer screenshot");
+                return;
+            }
+            e.Handled = true;
+            ShareFromTheme(item);
+        }
+
         public override ISettings GetSettings(bool firstRunSettings) => settings;
 
         public override UserControl GetSettingsView(bool firstRunSettings) => new FireshareSettingsView(settings);
@@ -62,7 +84,10 @@ namespace FireshareShare
         {
             var path = item as string ?? item?.GetType().GetProperty("FileName")?.GetValue(item) as string;
             if (string.IsNullOrEmpty(path) || !File.Exists(path) || !EnsureConfigured()) return;
-            Upload(PlayniteApi.MainView.SelectedGames?.FirstOrDefault()?.Name, new[] { new Capture { Path = path } });
+            // ScreenshotsVisualizer items say which game they belong to; otherwise use the selected one.
+            var gameId = item?.GetType().GetProperty("GameId")?.GetValue(item) as Guid?;
+            var game = (gameId.HasValue ? PlayniteApi.Database.Games.Get(gameId.Value) : null) ?? PlayniteApi.MainView.SelectedGames?.FirstOrDefault();
+            Upload(game?.Name, new[] { new Capture { Path = path } });
         }
 
         bool EnsureConfigured()
