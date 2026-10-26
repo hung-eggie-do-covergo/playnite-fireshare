@@ -11,6 +11,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Playnite.SDK;
+using Playnite.SDK.Models;
 
 namespace FireshareShare
 {
@@ -38,8 +39,9 @@ namespace FireshareShare
 
         enum Where { Local, Both, Remote }
 
-        public static Capture[] Pick(IPlayniteAPI api, string gameName, string folder, FireshareClient client, MediaIdCache ids)
+        public static Capture[] Pick(IPlayniteAPI api, Game game, string folder, FireshareClient client, MediaIdCache ids)
         {
+            var gameName = game.Name;
             if (!Directory.Exists(folder))
             {
                 api.Dialogs.ShowErrorMessage($"Captures folder not found: {folder}", "Fireshare Share");
@@ -47,9 +49,11 @@ namespace FireshareShare
             }
 
             var fullscreen = api.ApplicationInfo.Mode == ApplicationMode.Fullscreen;
-            var gameFiles = Find(folder, Prefix(gameName));
+            // ScreenshotsVisualizer's index knows the user's per-game folders and overrides; the filename guess is the fallback.
+            var gameFiles = ScreenshotsVisualizerIndex.Files(api, game.Id) ?? Find(folder, Prefix(gameName));
             var allFiles = Find(folder, "");
-            var showingAll = gameFiles.Count == 0;
+            // Start on the game even with nothing local: its Fireshare captures may still be there.
+            var showingAll = false;
             var generation = 0;
             var result = new Capture[0];
 
@@ -156,7 +160,6 @@ namespace FireshareShare
 
             void SwitchList()
             {
-                if (gameFiles.Count == 0) return;
                 showingAll = !showingAll;
                 Show();
             }
@@ -176,7 +179,7 @@ namespace FireshareShare
             var content = new DockPanel();
             DockPanel.SetDock(heading, Dock.Top);
             content.Children.Add(heading);
-            var footer = fullscreen ? PromptFooter(gameFiles.Count > 0) : ButtonFooter(Confirm, SwitchList, () => window.Close());
+            var footer = fullscreen ? PromptFooter() : ButtonFooter(Confirm, SwitchList, () => window.Close());
             DockPanel.SetDock(footer, Dock.Bottom);
             content.Children.Add(footer);
             list.Margin = new Thickness(10);
@@ -212,12 +215,12 @@ namespace FireshareShare
             return result;
         }
 
-        static FrameworkElement PromptFooter(bool canSwitch)
+        static FrameworkElement PromptFooter()
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
             row.Children.Add(Prompt("ButtonPromptA", "Select"));
             row.Children.Add(Prompt("ButtonPromptX", "Share"));
-            if (canSwitch) row.Children.Add(Prompt("ButtonPromptY", "Switch list"));
+            row.Children.Add(Prompt("ButtonPromptY", "Switch list"));
             row.Children.Add(Prompt("ButtonPromptB", "Back"));
             var footer = new Border { Child = row };
             footer.SetResourceReference(FrameworkElement.StyleProperty, "ItemSelectionFooterBorder");
@@ -285,12 +288,10 @@ namespace FireshareShare
                 Visibility = Visibility.Collapsed,
                 Child = new TextBlock { Text = "✓", Foreground = Brushes.White, FontSize = 22, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
             });
-            grid.Children.Add(new Border
+            grid.Children.Add(new StackPanel
             {
-                CornerRadius = new CornerRadius(4), Margin = new Thickness(10), Padding = new Thickness(8, 3, 8, 3),
+                Orientation = Orientation.Horizontal, Margin = new Thickness(10),
                 HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
-                Visibility = Visibility.Collapsed,
-                Child = new TextBlock { Foreground = Brushes.White, FontSize = 14 },
             });
 
             var frame = new Border { BorderThickness = new Thickness(4), BorderBrush = Brushes.Transparent, CornerRadius = new CornerRadius(4), Child = grid };
@@ -302,15 +303,31 @@ namespace FireshareShare
 
         static void SetThumb(ListBoxItem tile, BitmapSource thumb) => ((Image)Parts(tile).Children[0]).Source = thumb;
 
+        // Windows' own icon fonts: Fluent on 11, MDL2 on 10. Same code points in both.
+        static readonly FontFamily IconFont = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
+        const string DriveGlyph = "\uEDA2", CloudGlyph = "\uE753", LockGlyph = "\uE72E";
+
         static void SetBadge(ListBoxItem tile, Where where, bool isPrivate)
         {
-            var pill = (Border)Parts(tile).Children[3];
-            ((TextBlock)pill.Child).Text = (where == Where.Local ? "Local" : where == Where.Both ? "Local + Fireshare" : "Fireshare")
-                + (isPrivate ? " · Private" : "");
-            pill.Background = new SolidColorBrush(where == Where.Local ? Color.FromArgb(200, 70, 70, 76)
-                : where == Where.Both ? Color.FromRgb(46, 158, 91) : Color.FromRgb(139, 92, 246));
-            pill.Visibility = Visibility.Visible;
+            var chips = (StackPanel)Parts(tile).Children[3];
+            chips.Children.Clear();
+            if (where != Where.Remote) chips.Children.Add(Chip(DriveGlyph, Color.FromArgb(200, 40, 40, 46)));
+            if (where != Where.Local) chips.Children.Add(Chip(CloudGlyph, Color.FromRgb(139, 92, 246)));
+            if (isPrivate) chips.Children.Add(Chip(LockGlyph, Color.FromRgb(196, 132, 20)));
+            tile.ToolTip = (where == Where.Local ? "On this PC" : where == Where.Both ? "On this PC and Fireshare" : "Only on Fireshare")
+                + (isPrivate ? ", private" : "");
         }
+
+        static Border Chip(string glyph, Color color) => new Border
+        {
+            Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Margin = new Thickness(0, 0, 6, 0),
+            Background = new SolidColorBrush(color),
+            Child = new TextBlock
+            {
+                Text = glyph, FontFamily = IconFont, FontSize = 17, Foreground = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
 
         static Grid Parts(ListBoxItem item) => (Grid)((Border)item.Content).Child;
 
