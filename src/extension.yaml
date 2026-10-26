@@ -1,0 +1,9 @@
+Id: eggie_FireshareShare
+Name: Fireshare Share
+Author: eggie
+Version: 0.1.0
+Module: FireshareShare.dll
+Type: GenericPlugin
+Links:
+  - Name: GitHub
+    Url: https://github.com/hung-eggie-do-covergo/playnite-fireshare
