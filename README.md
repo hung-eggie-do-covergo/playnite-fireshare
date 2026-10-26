@@ -1,48 +1,64 @@
-<img src="src/icon.png" width="96" align="right" alt="">
+<p align="center">
+  <img src="src/icon.png" alt="" width="112">
+</p>
 
-# Fireshare Share
+<h1 align="center">Fireshare Share</h1>
 
-A Playnite extension that uploads the screenshots and clips you choose to your own
-[Fireshare](https://github.com/ShaneIsrael/fireshare) instance and copies the share links.
+<p align="center">
+  Share Playnite screenshots and clips to your own <a href="https://github.com/fireshare-app/fireshare">Fireshare</a>, from the couch.
+  <br><br>
+  <a href="https://github.com/hung-eggie-do-covergo/playnite-fireshare/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/hung-eggie-do-covergo/playnite-fireshare?color=c43f55"></a>
+  <a href="https://github.com/hung-eggie-do-covergo/playnite-fireshare/actions"><img alt="Build" src="https://github.com/hung-eggie-do-covergo/playnite-fireshare/actions/workflows/build.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/hung-eggie-do-covergo/playnite-fireshare?color=f28919"></a>
+</p>
 
-![Capture grid in fullscreen mode](docs/images/grid.jpg)
+<p align="center">
+  <img src="docs/images/grid.jpg" alt="Capture grid in Playnite fullscreen mode" width="860">
+</p>
 
-Icons show where each capture is: drive = this PC, cloud = Fireshare, lock = private on Fireshare.
+## Features
+
+- Pick captures in a grid, with a controller in fullscreen mode or a mouse in desktop mode.
+- See what is where: a drive icon for this PC, a cloud for Fireshare, a lock for private.
+- Captures that are only on Fireshare show too. Sharing one copies its link without uploading.
+- Press **X** on a ScreenshotsVisualizer screenshot to share it, in any theme.
+- Uses ScreenshotsVisualizer's game index when installed, so its folder settings and overrides apply.
+- Never uploads a file twice. Links go to the clipboard.
 
 ## Install
 
-Download the `.pext` from [Releases](https://github.com/hung-eggie-do-covergo/playnite-fireshare/releases) and open it with Playnite.
+Download the `.pext` from [Releases](https://github.com/hung-eggie-do-covergo/playnite-fireshare/releases/latest) and open it with Playnite.
 
-Requires Fireshare 1.9 or newer, which added upload tokens.
+Requires Fireshare 1.9 or newer.
 
 ## Setup
 
-1. In Fireshare, go to **Settings → Security → Upload Tokens** and create a token.
-2. In Playnite, open **Add-ons → Extension settings → Fireshare Share**. Enter your Fireshare URL and the token, then click **Test connection**.
-3. Optional: under **Private items**, sign in as a Fireshare user to see private captures in the grid. Only the session cookie is kept, encrypted; the password is not stored. The account needs the view-private permission.
-4. Fireshare makes new uploads private, and a private link asks the viewer to log in. To share links with anyone, set the default privacy for videos and images to public in Fireshare.
+1. In Fireshare, open **Settings → Security → Upload Tokens** and create a token.
+2. In Playnite desktop mode, open **Add-ons → Extension settings → Fireshare Share**. Enter the Fireshare URL and the token, then click **Test connection**.
+3. Optional: under **Private items**, sign in as a Fireshare user to see private captures. Only the session is kept, encrypted; the password is not stored.
+4. Fireshare makes new uploads private by default. Set the default privacy for images and videos to public if links should open for anyone.
 
 ## Use
 
-In the game menu, choose **Share captures to Fireshare…**. In fullscreen mode it is under **Extensions**.
+Game menu → **Share captures to Fireshare…** (under **Extensions** in fullscreen mode).
 
-- A grid shows the game's captures. With ScreenshotsVisualizer installed, they come from its index, so its folder settings and per-game overrides decide what belongs to a game. Without it, captures folder files whose name starts with the game name are used (default `Videos\Captures`, where Xbox Game Bar saves).
-- Icons show where each capture is: a drive for this PC, a cloud for Fireshare, a lock when the Fireshare copy is private. Captures that are only on Fireshare show too; sharing one copies its link without uploading. Fireshare lists items of games it already has: public ones, plus private ones when signed in.
-- Controller: D-pad moves, **A** selects, **X** shares, **Y** switches between this game and all captures, **B** goes back. With nothing selected, **X** shares the focused capture.
-- Mouse and keyboard work too.
-- The links are copied to the clipboard, one per line. Fullscreen mode also shows them in a dialog.
-- Files already on Fireshare are not uploaded again. Their existing link is copied.
-- Uploads are linked to the game when Fireshare already has a game with the same name.
+| Button | Action |
+| --- | --- |
+| D-pad | Move |
+| A | Select |
+| X | Share the selection, or the focused capture |
+| Y | Switch between this game and all captures |
+| B | Back |
 
-Supported files: `png`, `jpg`, `jpeg`, `webp`, `gif`, `mp4`, `m4v`, `mov`, `webm`. HDR `.jxr` screenshots are not supported by Fireshare; share the `.png` Game Bar saves next to them.
+Fireshare-only captures appear for games Fireshare already has. Uploads are linked to the Fireshare game of the same name.
 
-The token is stored encrypted with Windows DPAPI for your user account.
+Supported files: `png`, `jpg`, `jpeg`, `webp`, `gif`, `mp4`, `m4v`, `mov`, `webm`. Fireshare does not take HDR `.jxr` screenshots; share the `.png` Game Bar saves next to them.
 
-In fullscreen mode, pressing **X** on a ScreenshotsVisualizer screenshot shares it, in any theme that shows them (for example in a game's Screenshots section). A theme that binds X there itself keeps it.
+The token and session are stored with Windows DPAPI for your user account.
 
 ## Theme integration
 
-Themes can offer a share button wherever they show a screenshot. The command takes a file path, or an item with a `FileName` property such as a ScreenshotsVisualizer screenshot:
+Themes can add a share prompt wherever they show a screenshot. The command takes a file path, or an item with a `FileName` property such as a ScreenshotsVisualizer screenshot:
 
 ```xml
 <!-- {PluginSettings} works only on a normal element inside a template -->
@@ -58,8 +74,8 @@ Themes can offer a share button wherever they show a screenshot. The command tak
 ## Build
 
 ```sh
-./pack.sh                 # writes dist/FireshareShare-<version>.pext
+./pack.sh                    # dist/FireshareShare-<version>.pext
 dotnet run --project tests
 ```
 
-Builds on macOS, Linux or Windows with the .NET SDK.
+Builds on macOS, Linux or Windows with the .NET SDK. Not affiliated with the Fireshare project.
