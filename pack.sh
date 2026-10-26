@@ -7,5 +7,5 @@ version=$(sed -n 's/^Version: //p' src/extension.yaml)
 mkdir -p dist
 out="$PWD/dist/FireshareShare-$version.pext"
 rm -f "$out"
-(cd src/bin/Release/net462 && zip -q "$out" ./*.dll extension.yaml)
+(cd src/bin/Release/net462 && zip -q "$out" ./*.dll extension.yaml icon.png)
 echo "$out"

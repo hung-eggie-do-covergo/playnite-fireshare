@@ -28,7 +28,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="extension.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="extension.yaml;icon.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
