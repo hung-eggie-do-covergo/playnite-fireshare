@@ -33,11 +33,10 @@ namespace FireshareShare
 
         // Captures usually sit on a network share; reading more than this per open gets slow.
         const int MaxShown = 60;
-        const double TileWidth = 360, TileHeight = 203;
+        const double TileWidth = 360, TileHeight = 203, TileRadius = 10;
 
         static readonly string[] Types = FireshareClient.ImageTypes.Concat(FireshareClient.VideoTypes).ToArray();
 
-        static readonly ControlTemplate BareItem = new ControlTemplate(typeof(ListBoxItem)) { VisualTree = new FrameworkElementFactory(typeof(ContentPresenter)) };
 
         enum Where { Local, Both, Remote }
 
@@ -68,9 +67,14 @@ namespace FireshareShare
             scroller.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
             scroller.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, fullscreen ? ScrollBarVisibility.Hidden : ScrollBarVisibility.Auto);
             scroller.SetValue(UIElement.FocusableProperty, false);
-            scroller.AppendChild(new FrameworkElementFactory(typeof(ItemsPresenter)));
+            // room for the focused tile to grow and show its ring
+            var presenter = new FrameworkElementFactory(typeof(ItemsPresenter));
+            presenter.SetValue(FrameworkElement.MarginProperty, new Thickness(16));
+            scroller.AppendChild(presenter);
             list.Template = new ControlTemplate(typeof(ListBox)) { VisualTree = scroller };
-            list.ItemsPanel = new ItemsPanelTemplate(new FrameworkElementFactory(typeof(WrapPanel)));
+            var wrap = new FrameworkElementFactory(typeof(WrapPanel));
+            wrap.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            list.ItemsPanel = new ItemsPanelTemplate(wrap);
             list.SelectionChanged += (s, e) =>
             {
                 foreach (ListBoxItem item in e.AddedItems) Parts(item).Children[2].Visibility = Visibility.Visible;
@@ -141,6 +145,8 @@ namespace FireshareShare
                         window.Dispatcher.Invoke(() =>
                         {
                             tile = Tile(capture);
+                            // WPF shows tooltips on keyboard focus, which a controller always has
+                            ToolTipService.SetIsEnabled(tile, !fullscreen);
                             SetBadge(tile, Where.Remote, item.Private);
                             // Newest first, matching the local order.
                             var at = list.Items.Cast<ListBoxItem>().TakeWhile(t => ((Capture)t.Tag).Date >= capture.Date).Count();
@@ -210,37 +216,39 @@ namespace FireshareShare
         static ListBoxItem Tile(Capture capture)
         {
             var video = capture.Kind == "video";
-            var grid = new Grid { Width = TileWidth, Height = TileHeight, ClipToBounds = true, Background = new SolidColorBrush(Color.FromRgb(36, 36, 40)) };
+            var grid = new Grid { Width = TileWidth, Height = TileHeight, Clip = new RectangleGeometry(new Rect(0, 0, TileWidth, TileHeight), TileRadius, TileRadius) };
+            DialogShell.Themed(grid, Panel.BackgroundProperty, "ControlBackgroundBrush", new SolidColorBrush(Color.FromRgb(36, 36, 40)));
             grid.Children.Add(new Image { Stretch = Stretch.UniformToFill });
-            grid.Children.Add(new TextBlock
+            var date = new TextBlock
             {
                 // A midnight Fireshare date carries no time; showing 12:00 AM would be invented.
                 Text = (video ? "▶  " : "") + capture.Date.ToString(capture.Path == null && capture.Date.TimeOfDay == TimeSpan.Zero ? "d" : "g"),
-                Foreground = Brushes.White,
-                FontSize = 16,
-                Background = new SolidColorBrush(Color.FromArgb(170, 0, 0, 0)),
-                Padding = new Thickness(10, 5, 10, 5),
+                Padding = new Thickness(12, 6, 12, 6),
                 VerticalAlignment = VerticalAlignment.Bottom,
-            });
-            grid.Children.Add(new Border
+            };
+            DialogShell.Themed(date, FrameworkElement.StyleProperty, "TextBlockBaseStyle", null);
+            DialogShell.Themed(date, TextBlock.FontSizeProperty, "FontSizeSmall", 16.0);
+            DialogShell.Themed(date, TextBlock.ForegroundProperty, "TextBrush", Brushes.White);
+            DialogShell.Themed(date, TextBlock.BackgroundProperty, "OverlayBrush", new SolidColorBrush(Color.FromArgb(170, 0, 0, 0)));
+            grid.Children.Add(date);
+            var check = new TextBlock { Text = "✓", FontSize = 22, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            DialogShell.Themed(check, TextBlock.ForegroundProperty, "ControlBackgroundBrush", Brushes.White);
+            var mark = new Border
             {
                 Width = 38, Height = 38, CornerRadius = new CornerRadius(19), Margin = new Thickness(10),
                 HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-                Background = new SolidColorBrush(Color.FromRgb(26, 159, 255)),
                 Visibility = Visibility.Collapsed,
-                Child = new TextBlock { Text = "✓", Foreground = Brushes.White, FontSize = 22, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
-            });
+                Child = check,
+            };
+            DialogShell.Themed(mark, Border.BackgroundProperty, "GlyphBrush", new SolidColorBrush(Color.FromRgb(26, 159, 255)));
+            grid.Children.Add(mark);
             grid.Children.Add(new StackPanel
             {
                 Orientation = Orientation.Horizontal, Margin = new Thickness(10),
                 HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
             });
 
-            var frame = new Border { BorderThickness = new Thickness(4), BorderBrush = Brushes.Transparent, CornerRadius = new CornerRadius(4), Child = grid };
-            var item = new ListBoxItem { Content = frame, Tag = capture, Margin = new Thickness(6), Template = BareItem, FocusVisualStyle = null };
-            item.GotKeyboardFocus += (s, e) => frame.BorderBrush = Brushes.White;
-            item.LostKeyboardFocus += (s, e) => frame.BorderBrush = Brushes.Transparent;
-            return item;
+            return DialogShell.Item(grid, capture, TileRadius);
         }
 
         static void SetThumb(ListBoxItem tile, BitmapSource thumb) => ((Image)Parts(tile).Children[0]).Source = thumb;
@@ -253,25 +261,23 @@ namespace FireshareShare
         {
             var chips = (StackPanel)Parts(tile).Children[3];
             chips.Children.Clear();
-            if (where != Where.Remote) chips.Children.Add(Chip(DriveGlyph, Color.FromArgb(200, 40, 40, 46)));
-            if (where != Where.Local) chips.Children.Add(Chip(CloudGlyph, Color.FromRgb(139, 92, 246)));
-            if (isPrivate) chips.Children.Add(Chip(LockGlyph, Color.FromRgb(196, 132, 20)));
+            if (where != Where.Remote) chips.Children.Add(Chip(DriveGlyph, "TextBrush"));
+            if (where != Where.Local) chips.Children.Add(Chip(CloudGlyph, "GlyphBrush"));
+            if (isPrivate) chips.Children.Add(Chip(LockGlyph, "TextBrush"));
             tile.ToolTip = (where == Where.Local ? "On this PC" : where == Where.Both ? "On this PC and Fireshare" : "Only on Fireshare")
                 + (isPrivate ? ", private" : "");
         }
 
-        static Border Chip(string glyph, Color color) => new Border
+        static Border Chip(string glyph, string brushKey)
         {
-            Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Margin = new Thickness(0, 0, 6, 0),
-            Background = new SolidColorBrush(color),
-            Child = new TextBlock
-            {
-                Text = glyph, FontFamily = IconFont, FontSize = 17, Foreground = Brushes.White,
-                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-            },
-        };
+            var icon = new TextBlock { Text = glyph, FontFamily = IconFont, FontSize = 17, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            DialogShell.Themed(icon, TextBlock.ForegroundProperty, brushKey, Brushes.White);
+            var chip = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Margin = new Thickness(0, 0, 6, 0), Child = icon };
+            DialogShell.Themed(chip, Border.BackgroundProperty, "OverlayBrush", new SolidColorBrush(Color.FromArgb(200, 40, 40, 46)));
+            return chip;
+        }
 
-        static Grid Parts(ListBoxItem item) => (Grid)((Border)item.Content).Child;
+        static Grid Parts(ListBoxItem item) => (Grid)((Grid)item.Content).Children[0];
 
         static BitmapSource Decode(byte[] bytes)
         {

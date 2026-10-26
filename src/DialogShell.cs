@@ -2,6 +2,8 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Playnite.SDK;
 
 namespace FireshareShare
@@ -25,6 +27,37 @@ namespace FireshareShare
     public static class DialogShell
     {
         public static bool IsFullscreen(IPlayniteAPI api) => api.ApplicationInfo.Mode == ApplicationMode.Fullscreen;
+
+        static readonly ControlTemplate BareItem = new ControlTemplate(typeof(ListBoxItem)) { VisualTree = new FrameworkElementFactory(typeof(ContentPresenter)) };
+
+        /// <summary>The theme's resource when it has one, so palettes and light themes carry over; otherwise the fallback.</summary>
+        public static void Themed(FrameworkElement element, DependencyProperty property, string key, object fallback)
+        {
+            if (element.TryFindResource(key) != null) element.SetResourceReference(property, key);
+            else element.SetValue(property, fallback);
+        }
+
+        /// <summary>A list item that grows and shows a ring in the theme's text colour when focused, like fullscreen game lists.</summary>
+        public static ListBoxItem Item(FrameworkElement content, object tag, double radius, double grow = 1.05)
+        {
+            var ring = new Border { BorderThickness = new Thickness(3), CornerRadius = new CornerRadius(radius + 5), Margin = new Thickness(-6), Visibility = Visibility.Hidden, IsHitTestVisible = false };
+            Themed(ring, Border.BorderBrushProperty, "TextBrush", Brushes.White);
+            var scale = new ScaleTransform(1, 1);
+            var item = new ListBoxItem
+            {
+                Content = new Grid { Children = { content, ring } }, Tag = tag, Margin = new Thickness(12),
+                Template = BareItem, FocusVisualStyle = null, RenderTransform = scale, RenderTransformOrigin = new Point(0.5, 0.5),
+            };
+            void Grow(double to)
+            {
+                var animation = new DoubleAnimation(to, TimeSpan.FromMilliseconds(150));
+                scale.BeginAnimation(ScaleTransform.ScaleXProperty, animation);
+                scale.BeginAnimation(ScaleTransform.ScaleYProperty, animation);
+            }
+            item.GotKeyboardFocus += (s, e) => { ring.Visibility = Visibility.Visible; Panel.SetZIndex(item, 1); Grow(grow); };
+            item.LostKeyboardFocus += (s, e) => { ring.Visibility = Visibility.Hidden; Panel.SetZIndex(item, 0); Grow(1); };
+            return item;
+        }
 
         /// <summary>Playnite raises controller buttons as bubbling KeyDown events (no Preview) carrying a Button property.</summary>
         public static string ControllerButton(KeyEventArgs e) => e.GetType().GetProperty("Button")?.GetValue(e)?.ToString();

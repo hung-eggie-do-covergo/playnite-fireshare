@@ -11,8 +11,6 @@ namespace FireshareShare
     /// <summary>Asks which SteamGridDB game a Playnite game is, when the name and year do not settle it.</summary>
     public static class GameChooser
     {
-        static readonly ControlTemplate BareItem = new ControlTemplate(typeof(ListBoxItem)) { VisualTree = new FrameworkElementFactory(typeof(ContentPresenter)) };
-
         /// <summary>The chosen game, or null to upload without one.</summary>
         public static GridGame Choose(IPlayniteAPI api, string gameName, int? year, List<GridGame> ranked)
         {
@@ -75,10 +73,10 @@ namespace FireshareShare
             stack.Children.Add(name);
             stack.Children.Add(details);
 
-            var frame = new Border { BorderThickness = new Thickness(3), BorderBrush = Brushes.Transparent, CornerRadius = new CornerRadius(4), Padding = new Thickness(14, 8, 14, 8), Child = stack };
-            var item = new ListBoxItem { Content = frame, Tag = game, Margin = new Thickness(4), Template = BareItem, FocusVisualStyle = null };
-            item.GotKeyboardFocus += (s, e) => { frame.BorderBrush = Brushes.White; item.IsSelected = true; };
-            item.LostKeyboardFocus += (s, e) => frame.BorderBrush = Brushes.Transparent;
+            var card = new Border { CornerRadius = new CornerRadius(10), Padding = new Thickness(18, 10, 18, 10), Child = stack };
+            DialogShell.Themed(card, Border.BackgroundProperty, "ControlBackgroundBrush", Brushes.Transparent);
+            var item = DialogShell.Item(card, game, 10, 1.01);
+            item.GotKeyboardFocus += (s, e) => item.IsSelected = true;
             return item;
         }
     }
