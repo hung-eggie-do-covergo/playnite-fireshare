@@ -1,7 +1,7 @@
 Id: eggie_FireshareShare
 Name: Fireshare Share
 Author: eggie
-Version: 0.1.2
+Version: 0.1.3
 Module: FireshareShare.dll
 Type: GenericPlugin
 Links:
