@@ -51,6 +51,7 @@ namespace FireshareShare
             }
 
             var fullscreen = api.ApplicationInfo.Mode == ApplicationMode.Fullscreen;
+            tooltips = !fullscreen;
             // ScreenshotsVisualizer's index knows the user's per-game folders and overrides; the filename guess is the fallback.
             var gameFiles = game == null ? new List<string>() : ScreenshotsVisualizerIndex.Files(api, game.Id) ?? Find(folder, Prefix(gameName));
             var owners = ScreenshotsVisualizerIndex.Owners(api);
@@ -145,8 +146,6 @@ namespace FireshareShare
                         window.Dispatcher.Invoke(() =>
                         {
                             tile = Tile(capture);
-                            // WPF shows tooltips on keyboard focus, which a controller always has
-                            ToolTipService.SetIsEnabled(tile, !fullscreen);
                             SetBadge(tile, Where.Remote, item.Private);
                             // Newest first, matching the local order.
                             var at = list.Items.Cast<ListBoxItem>().TakeWhile(t => ((Capture)t.Tag).Date >= capture.Date).Count();
@@ -184,6 +183,11 @@ namespace FireshareShare
             if (game != null) hints.Add(new Hint("ButtonPromptY", "Switch list", SwitchList));
             hints.Add(new Hint("ButtonPromptB", "Back", () => window.Close()));
             window = DialogShell.Create(api, "Share to Fireshare", heading, list, DialogShell.Footer(api, hints.ToArray()), new Size(1640, 940), new Size(1240, 780));
+            // Activating the window later (Alt+Tab, another app on top) leaves no tile focused.
+            window.Activated += (s, e) =>
+            {
+                if (!(Keyboard.FocusedElement is ListBoxItem) && list.Items.Count > 0) ((ListBoxItem)list.Items[0]).Focus();
+            };
 
             window.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((s, e) =>
             {
@@ -257,6 +261,9 @@ namespace FireshareShare
         static readonly FontFamily IconFont = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
         const string DriveGlyph = "\uEDA2", CloudGlyph = "\uE753", LockGlyph = "\uE72E";
 
+        // WPF shows tooltips on keyboard focus, which a controller always has.
+        static bool tooltips;
+
         static void SetBadge(ListBoxItem tile, Where where, bool isPrivate)
         {
             var chips = (StackPanel)Parts(tile).Children[3];
@@ -264,7 +271,7 @@ namespace FireshareShare
             if (where != Where.Remote) chips.Children.Add(Chip(DriveGlyph, "TextBrush"));
             if (where != Where.Local) chips.Children.Add(Chip(CloudGlyph, "GlyphBrush"));
             if (isPrivate) chips.Children.Add(Chip(LockGlyph, "TextBrush"));
-            tile.ToolTip = (where == Where.Local ? "On this PC" : where == Where.Both ? "On this PC and Fireshare" : "Only on Fireshare")
+            if (tooltips) tile.ToolTip = (where == Where.Local ? "On this PC" : where == Where.Both ? "On this PC and Fireshare" : "Only on Fireshare")
                 + (isPrivate ? ", private" : "");
         }
 
