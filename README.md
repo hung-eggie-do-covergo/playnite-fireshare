@@ -13,7 +13,8 @@ Requires Fireshare 1.9 or newer, which added upload tokens.
 
 1. In Fireshare, go to **Settings → Security → Upload Tokens** and create a token.
 2. In Playnite, open **Add-ons → Extension settings → Fireshare Share**. Enter your Fireshare URL and the token, then click **Test connection**.
-3. Fireshare makes new uploads private, and a private link asks the viewer to log in. To share links with anyone, set the default privacy for videos and images to public in Fireshare.
+3. Optional: under **Private items**, sign in as a Fireshare user to see private captures in the grid. Only the session cookie is kept, encrypted; the password is not stored. The account needs the view-private permission.
+4. Fireshare makes new uploads private, and a private link asks the viewer to log in. To share links with anyone, set the default privacy for videos and images to public in Fireshare.
 
 ## Use
 

@@ -12,6 +12,8 @@ namespace FireshareShare
     {
         string serverUrl = "";
         string protectedToken = "";
+        string protectedSession = "";
+        string sessionUser = "";
         // Where Xbox Game Bar saves; follows a redirected Videos folder.
         string capturesFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Captures");
 
@@ -22,16 +24,23 @@ namespace FireshareShare
         public string ProtectedToken { get => protectedToken; set => SetValue(ref protectedToken, value); }
 
         [DontSerialize]
-        public string Token
+        public string Token { get => Unprotect(ProtectedToken); set => ProtectedToken = Protect(value?.Trim()); }
+
+        // Fireshare session cookie from signing in; the password itself is never stored.
+        public string ProtectedSession { get => protectedSession; set => SetValue(ref protectedSession, value); }
+        public string SessionUser { get => sessionUser; set => SetValue(ref sessionUser, value); }
+
+        [DontSerialize]
+        public string Session { get => Unprotect(ProtectedSession); set => ProtectedSession = Protect(value); }
+
+        static string Protect(string value) => string.IsNullOrEmpty(value) ? "" :
+            Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(value), null, DataProtectionScope.CurrentUser));
+
+        static string Unprotect(string blob)
         {
-            get
-            {
-                if (string.IsNullOrEmpty(ProtectedToken)) return "";
-                try { return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(ProtectedToken), null, DataProtectionScope.CurrentUser)); }
-                catch (Exception) { return ""; }
-            }
-            set => ProtectedToken = string.IsNullOrEmpty(value) ? "" :
-                Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(value.Trim()), null, DataProtectionScope.CurrentUser));
+            if (string.IsNullOrEmpty(blob)) return "";
+            try { return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(blob), null, DataProtectionScope.CurrentUser)); }
+            catch (Exception) { return ""; }
         }
 
         [DontSerialize]

@@ -22,15 +22,47 @@ namespace FireshareShare
         const int ChunkSize = 8 * 1024 * 1024;
         const int IdBytes = 16 * 1024 * 1024;
 
-        static readonly HttpClient http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        // UseCookies off: on .NET Framework the cookie jar silently drops the Cookie header carrying the session.
+        static readonly HttpClient http = new HttpClient(new HttpClientHandler { UseCookies = false }) { Timeout = TimeSpan.FromMinutes(5) };
 
         readonly Uri baseUri;
         readonly string token;
+        readonly string session;
 
-        public FireshareClient(string serverUrl, string token)
+        /// <param name="session">Cookie header from <see cref="LoginAsync"/>; adds private items to listings.</param>
+        public FireshareClient(string serverUrl, string token, string session = null)
         {
             baseUri = new Uri(serverUrl.TrimEnd('/') + "/");
             this.token = token;
+            this.session = string.IsNullOrEmpty(session) ? null : session;
+        }
+
+        /// <summary>Signs in as a Fireshare user. Returns the session cookie, or a pending login when a TOTP code is needed.</summary>
+        public static async Task<LoginResult> LoginAsync(string serverUrl, string username, string password)
+        {
+            var pending = new LoginResult { BaseUri = new Uri(serverUrl.TrimEnd('/') + "/"), Cookies = new CookieContainer() };
+            var json = "{\"username\":" + JsonString(username) + ",\"password\":" + JsonString(password) + "}";
+            return await pending.PostAsync("api/login", json);
+        }
+
+        public static Task<LoginResult> VerifyMfaAsync(LoginResult pending, string code)
+            => pending.PostAsync("api/login/mfa", "{\"code\":" + JsonString(code.Trim()) + "}");
+
+        /// <summary>Who the stored session belongs to, or null when it has expired or was never set.</summary>
+        public async Task<SessionInfo> SessionAsync(CancellationToken ct = default)
+        {
+            if (session == null) return null;
+            var info = await GetAsync<SessionInfo>("api/loggedin", ct);
+            return info.Authenticated ? info : null;
+        }
+
+        static string JsonString(string value)
+        {
+            using (var ms = new MemoryStream())
+            {
+                new DataContractJsonSerializer(typeof(string)).WriteObject(ms, value ?? "");
+                return System.Text.Encoding.UTF8.GetString(ms.ToArray());
+            }
         }
 
         /// <summary>Playnite ships an older System.Memory with no binding redirect, so load ours from the plugin folder.</summary>
@@ -86,7 +118,7 @@ namespace FireshareShare
             var game = MatchGameRef(gameName, await GamesAsync(ct));
             if (game?.SteamGridDbId == null) return items;
 
-            // Anonymous reads: the token is not a session, so these list public items only.
+            // The token is not a session: without a signed-in cookie these list public items only.
             foreach (var media in await GetListAsync<MediaJson>($"api/games/{game.SteamGridDbId}/images", ct))
                 items.Add(media.ToRemote("image"));
             foreach (var media in await GetListAsync<MediaJson>($"api/games/{game.SteamGridDbId}/videos", ct))
@@ -189,6 +221,7 @@ namespace FireshareShare
         {
             var req = new HttpRequestMessage(method, new Uri(baseUri, path)) { Content = content };
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            if (session != null) req.Headers.Add("Cookie", session);
             return http.SendAsync(req, ct);
         }
 
@@ -237,6 +270,44 @@ namespace FireshareShare
         public string Kind;
         public DateTime Date;
         public string Title;
+        public bool Private;
+    }
+
+    public class LoginResult
+    {
+        internal Uri BaseUri;
+        internal CookieContainer Cookies;
+        static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
+
+        /// <summary>The Cookie header to store once signed in.</summary>
+        public string Session;
+        public bool MfaRequired;
+        public string Error;
+
+        internal async Task<LoginResult> PostAsync(string path, string json)
+        {
+            // Its own cookie jar: the MFA step must carry the half-finished login from the first request.
+            using (var http = new HttpClient(new HttpClientHandler { CookieContainer = Cookies }) { Timeout = Timeout })
+            using (var res = await http.PostAsync(new Uri(BaseUri, path), new StringContent(json, System.Text.Encoding.UTF8, "application/json")))
+            {
+                var body = await res.Content.ReadAsStringAsync();
+                var result = new LoginResult { BaseUri = BaseUri, Cookies = Cookies };
+                if (res.IsSuccessStatusCode && body.Contains("\"mfa_required\"")) result.MfaRequired = true;
+                else if (res.IsSuccessStatusCode) result.Session = Cookies.GetCookieHeader(BaseUri);
+                else result.Error = (int)res.StatusCode == 429 ? "Too many attempts. Wait a few minutes." : (body.Length > 0 && body.Length < 200 ? body : $"Sign-in failed ({(int)res.StatusCode}).");
+                return result;
+            }
+        }
+    }
+
+    [DataContract] public class SessionInfo
+    {
+        [DataMember(Name = "authenticated")] public bool Authenticated;
+        [DataMember(Name = "username")] public string Username;
+        [DataMember(Name = "admin")] public bool Admin;
+        [DataMember(Name = "permissions")] public List<string> Permissions;
+
+        public bool SeesPrivate => Admin || (Permissions?.Contains("view_private") ?? false);
     }
 
     [DataContract] class MediaJson
@@ -252,13 +323,14 @@ namespace FireshareShare
             // Fireshare usually dates captures from the filename, so the timestamp is local, often midnight.
             DateTime.TryParse(RecordedAt ?? CreatedAt, System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.None, out var date);
-            return new RemoteItem { Id = ImageId ?? VideoId, Kind = kind, Date = date, Title = Info?.Title };
+            return new RemoteItem { Id = ImageId ?? VideoId, Kind = kind, Date = date, Title = Info?.Title, Private = Info?.Private ?? false };
         }
     }
 
     [DataContract] class MediaInfoJson
     {
         [DataMember(Name = "title")] public string Title;
+        [DataMember(Name = "private")] public bool? Private;
     }
 
     [DataContract] class UploadOptions

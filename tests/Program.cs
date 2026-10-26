@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using FireshareShare;
 
 // Reference ids from Python: xxhash.xxh3_128_hexdigest(data[:16 MiB]), as Fireshare computes them.
@@ -31,6 +32,25 @@ if (url != null && token != null && args.Length > 0)
         var r = await client.ShareAsync(f, null);
         Console.WriteLine($"{f} -> {r.Link}{(r.AlreadyThere ? " (already there)" : "")}");
     }
+}
+
+// Live sign-in, only when asked: secrets come from files so they never reach the command line.
+if (args.Length > 0 && args[0] == "login")
+{
+    var dir = Environment.GetEnvironmentVariable("FIRESHARE_SECRETS");
+    var login = await FireshareClient.LoginAsync(url, File.ReadAllText(Path.Combine(dir, "user")).Trim(), File.ReadAllText(Path.Combine(dir, "pass")).TrimEnd('\r', '\n'));
+    if (login.MfaRequired)
+    {
+        Console.WriteLine("mfa required, waiting for code file");
+        var codeFile = Path.Combine(dir, "code");
+        for (var i = 0; i < 180 && !File.Exists(codeFile); i++) await Task.Delay(1000);
+        login = await FireshareClient.VerifyMfaAsync(login, File.ReadAllText(codeFile));
+    }
+    if (login.Session == null) { Console.WriteLine("login failed: " + login.Error); Environment.Exit(1); }
+    var info = await new FireshareClient(url, "", login.Session).SessionAsync();
+    Console.WriteLine(info == null ? "session not accepted" : $"signed in as {info.Username}, sees private: {info.SeesPrivate}");
+    File.WriteAllText(Path.Combine(dir, "session"), login.Session);
+    return;
 }
 
 Console.WriteLine("ok");

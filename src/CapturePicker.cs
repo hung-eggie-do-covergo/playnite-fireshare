@@ -117,7 +117,7 @@ namespace FireshareShare
                         localIds.Add(id);
                         remote.TryGetValue(id, out var match);
                         captures[i].Remote = match;
-                        Post(() => SetBadge(tile, match != null ? Where.Both : Where.Local));
+                        Post(() => SetBadge(tile, match != null ? Where.Both : Where.Local, match?.Private ?? false));
                     }
                     if (remote == null) return;
 
@@ -129,7 +129,7 @@ namespace FireshareShare
                         window.Dispatcher.Invoke(() =>
                         {
                             tile = Tile(capture);
-                            SetBadge(tile, Where.Remote);
+                            SetBadge(tile, Where.Remote, item.Private);
                             // Newest first, matching the local order.
                             var at = list.Items.Cast<ListBoxItem>().TakeWhile(t => ((Capture)t.Tag).Date >= capture.Date).Count();
                             list.Items.Insert(at, tile);
@@ -302,10 +302,11 @@ namespace FireshareShare
 
         static void SetThumb(ListBoxItem tile, BitmapSource thumb) => ((Image)Parts(tile).Children[0]).Source = thumb;
 
-        static void SetBadge(ListBoxItem tile, Where where)
+        static void SetBadge(ListBoxItem tile, Where where, bool isPrivate)
         {
             var pill = (Border)Parts(tile).Children[3];
-            ((TextBlock)pill.Child).Text = where == Where.Local ? "Local" : where == Where.Both ? "Local + Fireshare" : "Fireshare";
+            ((TextBlock)pill.Child).Text = (where == Where.Local ? "Local" : where == Where.Both ? "Local + Fireshare" : "Fireshare")
+                + (isPrivate ? " · Private" : "");
             pill.Background = new SolidColorBrush(where == Where.Local ? Color.FromArgb(200, 70, 70, 76)
                 : where == Where.Both ? Color.FromRgb(46, 158, 91) : Color.FromRgb(139, 92, 246));
             pill.Visibility = Visibility.Visible;

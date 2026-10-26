@@ -51,7 +51,7 @@ namespace FireshareShare
         {
             if (!EnsureConfigured()) return;
             var s = settings.Settings;
-            var picked = CapturePicker.Pick(PlayniteApi, game.Name, s.CapturesFolder, new FireshareClient(s.ServerUrl, s.Token), ids.Value);
+            var picked = CapturePicker.Pick(PlayniteApi, game.Name, s.CapturesFolder, new FireshareClient(s.ServerUrl, s.Token, s.Session), ids.Value);
             if (picked.Length > 0) Upload(game.Name, picked);
             try { ids.Value.Save(); }
             catch (Exception ex) { logger.Warn(ex, "Could not save the media id cache"); }
