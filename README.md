@@ -3,6 +3,10 @@
 A Playnite extension that uploads the screenshots and clips you choose to your own
 [Fireshare](https://github.com/ShaneIsrael/fireshare) instance and copies the share links.
 
+![Capture grid in fullscreen mode](docs/images/grid.jpg)
+
+Icons show where each capture is: drive = this PC, cloud = Fireshare, lock = private on Fireshare.
+
 ## Install
 
 Download the `.pext` from [Releases](https://github.com/hung-eggie-do-covergo/playnite-fireshare/releases) and open it with Playnite.
